@@ -179,14 +179,29 @@ async function publishRules() {
   log('rules live: households/{doc} readable/writable by any signed-in user');
 }
 
+const AUTH_CONFIG_URL = `https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT}/config`;
+
 async function configureAuth() {
   head('Enabling Anonymous sign-in + authorizing domains');
-  const { json: cfg } = await req('GET',
-    `https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT}/config`, null,
-    { label: 'get auth config' });
+
+  let got = await req('GET', AUTH_CONFIG_URL, null, { okStatuses: [404], label: 'get auth config' });
+  if (got.status === 404) {
+    log('auth not initialized on this project yet — initializing…');
+    await req('POST',
+      `https://identitytoolkit.googleapis.com/v2/projects/${PROJECT}/identityPlatform:initializeAuth`,
+      {}, { okStatuses: [409], label: 'initializeAuth' });
+    for (let i = 0; i < 10 && got.status === 404; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      got = await req('GET', AUTH_CONFIG_URL, null, { okStatuses: [404], label: 'get auth config (retry)' });
+      if (got.status === 404) process.stdout.write('.');
+    }
+    if (got.status === 404) throw new Error('auth config still not available after initializeAuth');
+  }
+
+  const cfg = got.json || {};
   const domains = [...new Set([...(cfg.authorizedDomains || []), ...DOMAINS])];
   await req('PATCH',
-    `https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT}/config?updateMask=signIn.anonymous.enabled,authorizedDomains`,
+    `${AUTH_CONFIG_URL}?updateMask=signIn.anonymous.enabled,authorizedDomains`,
     { signIn: { anonymous: { enabled: true } }, authorizedDomains: domains },
     { label: 'patch auth config' });
   log(`anonymous: enabled · authorized domains: ${domains.join(', ')}`);
@@ -222,7 +237,15 @@ async function webAppConfig() {
     await addFirebase();
     await createFirestore();
     await publishRules();
-    await configureAuth();
+
+    let authManual = null;
+    try {
+      await configureAuth();
+    } catch (e) {
+      authManual = e.message;
+      log(`⚠️  couldn't finish auth setup automatically (${e.message})`);
+    }
+
     const conf = await webAppConfig();
 
     const clean = {
@@ -239,6 +262,13 @@ async function webAppConfig() {
     console.log(JSON.stringify(clean, null, 2));
     console.log(`\n${'='.repeat(60)}`);
     console.log(`Then pick a passphrase and repeat the same config + passphrase on every device.\n`);
+
+    if (authManual) {
+      console.log(`⚠️  Auth wasn't fully configured by the script. Finish it by hand (2 clicks):`);
+      console.log(`   • Firebase console → Authentication → Get started → Anonymous → Enable`);
+      console.log(`   • Authentication → Settings → Authorized domains → add: ${DOMAINS.join(', ')}`);
+      console.log(`   then re-run this script to confirm, or just proceed.\n`);
+    }
 
     if (OUT && typeof OUT === 'string') {
       const { writeFileSync } = await import('node:fs');
