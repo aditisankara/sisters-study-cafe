@@ -1,0 +1,9 @@
+some features for study tracker. you can add more based on what you think is useful 
+
+1. multiple users with separate profiles - they can select out of 3-4 color themes (aesthetics are pretty important). 
+2. should be able to use it as a web-app, desktop widget, and phone(both android and apple) widget
+3. task dumping, daily and weekly planning
+4. calendar with deadlines, exams or events (task-linking to events)
+5. focus time - by default set to 45 mins but editable
+6. reminders: section that shows anything coming up in nest 7 days 
+7. good to have: push notifications - native reminders or sync calendar to google calendar or apple calendar and give reminders on laptop and phone

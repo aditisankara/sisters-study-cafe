@@ -1,0 +1,19 @@
+{
+  "name": "Sister's Café — Study Tracker",
+  "short_name": "Café Study",
+  "description": "Cozy multi-profile study tracker: task dumping, planning, calendar, focus timer, and reminders.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1a1712",
+  "theme_color": "#c98a5b",
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Focus now", "url": "./index.html#focus" },
+    { "name": "Task dump", "url": "./index.html#dump" },
+    { "name": "Widget", "url": "./index.html?widget=1#widget" }
+  ]
+}
