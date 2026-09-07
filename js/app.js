@@ -262,6 +262,8 @@ function viewDashboard(c) {
     <div class="section-title"><h2>${greet}, ${esc(p.name)} ${p.avatar || ''}</h2>
       <span class="pill">“${quote}”</span></div>
 
+    <div id="onboard"></div>
+
     <div class="grid cols-3">
       <div class="card">
         <h3>Today's focus</h3>
@@ -307,6 +309,8 @@ function viewDashboard(c) {
       </div>
     </div>`;
 
+  renderOnboarding($('#onboard'));
+
   const dt = $('#dashToday');
   todayTasks.slice(0, 8).forEach((t) => dt.appendChild(taskEl(t)));
   const du = $('#dashUp');
@@ -318,6 +322,72 @@ function viewDashboard(c) {
     renderView('dashboard');
   });
   c.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => (location.hash = b.dataset.go)));
+}
+
+/* ---------------- ONBOARDING CHECKLIST ---------------- */
+function isStandalone() {
+  return window.matchMedia && window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+}
+function installHint() {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua)) return 'iPhone/iPad: tap the Share button in Safari, then “Add to Home Screen”.';
+  if (/Android/.test(ua)) return 'Android: open the ⋮ menu in Chrome, then “Install app” / “Add to Home screen”.';
+  return 'Desktop: click the install icon in the address bar, or the browser menu → “Install Sisters’ Café…”.';
+}
+function renderOnboarding(box) {
+  if (!box) return;
+  const d = pdata();
+  const steps = [
+    { key: 'profile', label: 'Create your profile', done: true },
+    { key: 'install', label: 'Install the app on this device', done: isStandalone(),
+      action: () => (deferredPrompt ? deferredPrompt.prompt() : bigNote('Install the app', installHint())) },
+    { key: 'notify', label: 'Turn on reminder notifications', done: ('Notification' in window) && Notification.permission === 'granted',
+      action: async () => { const p = profile(); const ok = await ensureNotifyPermission(); p.notifOptIn = ok; saveDB();
+        toast(ok ? 'Notifications on 🔔' : 'Your browser blocked notifications'); renderView('dashboard'); } },
+    { key: 'task', label: 'Add your first task', done: d.tasks.length > 0, action: () => (location.hash = 'dump') },
+    { key: 'plan', label: 'Schedule something in the planner', done: d.tasks.some((t) => t.scheduledFor), action: () => (location.hash = 'planner') },
+    { key: 'event', label: 'Add a deadline or exam to the calendar', done: d.events.length > 0, action: () => (location.hash = 'calendar') },
+    { key: 'focus', label: 'Finish one focus session', done: d.sessions.some((s) => s.type === 'focus' && s.completed), action: () => (location.hash = 'focus') },
+    { key: 'sync', label: 'Set up cross-device sync', optional: true, done: SYNC.enabled, action: () => (location.hash = 'settings') },
+  ];
+  const required = steps.filter((s) => !s.optional);
+  const doneCount = required.filter((s) => s.done).length;
+  const allRequiredDone = doneCount === required.length;
+
+  if (d._onboardDismissed || (allRequiredDone && steps.every((s) => s.done))) { box.innerHTML = ''; return; }
+
+  box.innerHTML = `
+    <div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent)">
+      <div class="section-title">
+        <h3>👋 Getting started · ${doneCount}/${required.length}</h3>
+        <button class="btn small ghost" id="obHide">${allRequiredDone ? 'Done — hide' : 'Hide'}</button>
+      </div>
+      <div class="bar" style="margin-bottom:12px"><i style="width:${doneCount / required.length * 100}%"></i></div>
+      <div id="obList"></div>
+      <p class="muted" style="font-size:12px;margin-top:6px">
+        Cross-device sync is optional and free — there's a one-command setup helper in the repo’s
+        <code>setup/</code> folder, or a manual walkthrough in Settings → Cloud sync.</p>
+    </div>`;
+
+  const list = $('#obList');
+  steps.forEach((s) => {
+    const row = document.createElement('div');
+    row.className = 'task' + (s.done ? ' done' : '');
+    row.innerHTML = `
+      <button class="check">${s.done ? '✓' : ''}</button>
+      <div class="body"><div class="title">${esc(s.label)}${s.optional ? ' <span class="tag">optional</span>' : ''}</div></div>
+      ${s.done || !s.action ? '' : '<button class="btn small primary">Do it</button>'}`;
+    const btn = row.querySelector('.btn');
+    if (btn) btn.onclick = s.action;
+    list.appendChild(row);
+  });
+  $('#obHide').onclick = () => { d._onboardDismissed = true; saveDB(); renderView('dashboard'); };
+}
+function bigNote(title, body) {
+  mkModal(`<h3>${esc(title)}</h3><p>${esc(body)}</p>
+    <div class="row" style="justify-content:flex-end"><button class="btn primary" id="noteOk">Got it</button></div>`);
+  $('#noteOk').onclick = () => document.querySelector('.modal-backdrop')?.remove();
 }
 
 /* ---------------- TASK DUMP ---------------- */
@@ -1482,6 +1552,8 @@ const SYNC = (() => {
           <button class="btn primary" id="syncEnable">Enable cloud sync</button>
           <button class="btn ghost" id="syncGen">🎲 Suggest passphrase</button>
         </div>
+        <p class="muted" style="font-size:12px">💡 Shortcut: run <code>node setup/firebase-setup.mjs</code> from the repo (see <code>setup/README.md</code>)
+          to auto-provision all of the below and print the config. Or do it by hand:</p>
         <details style="margin-top:10px"><summary class="muted" style="font-size:12px;cursor:pointer">How to get a free Firebase project (one time, ~5 min)</summary>
           <ol class="muted" style="font-size:12px;line-height:1.6">
             <li>Go to <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a> → <b>Add project</b> (free "Spark" plan, no card).</li>

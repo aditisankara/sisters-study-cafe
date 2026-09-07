@@ -40,9 +40,27 @@ Then open `http://localhost:8000`.
 Push to GitHub and enable **GitHub Pages** (Settings → Pages → deploy from branch).
 Also works on Netlify / Cloudflare Pages / Vercel free tiers — it's just static files.
 
+## First run
+
+After you create a profile, the dashboard shows a **Getting started** checklist
+(install the app, enable reminders, add a task, plan a day, add a deadline, do a
+focus session, optionally turn on sync). It ticks itself off as you go and hides
+when finished.
+
 ## Cross-device sync setup (optional, free)
 
-Settings → **Cloud sync** has an in-app walkthrough. Short version:
+**Fastest path — the setup script.** Create a bare Firebase project (one click),
+grab a Google access token from the OAuth Playground, then:
+
+```bash
+node setup/firebase-setup.mjs --project YOUR_PROJECT_ID --token PASTE_TOKEN
+```
+
+It provisions Firestore, rules, Anonymous auth, authorized domains and a Web App,
+and prints the `firebaseConfig` to paste into Settings → Cloud sync. Full details
+in [`setup/README.md`](setup/README.md).
+
+**Manual path.** Settings → **Cloud sync** has an in-app walkthrough. Short version:
 
 1. Create a free Firebase project at <https://console.firebase.google.com> (Spark plan, no card).
 2. **Firestore Database → Create** (production mode).
