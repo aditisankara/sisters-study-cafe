@@ -1,5 +1,5 @@
 /* ============================================================
-   Sister's Café — Study Tracker
+   Sisters' Café — Study Tracker
    Single-file vanilla JS. No build, no dependencies, offline-first.
    Persistence: localStorage. Works as web app / installed PWA / widget.
    ============================================================ */
@@ -595,7 +595,7 @@ function paintTimer() {
   const st = $('#tStart'); if (st) st.textContent = Timer.running ? 'Pause' : (Timer.remaining < Timer.total ? 'Resume' : 'Start');
   // widget mirror
   const wt = $('#widgetTimer'); if (wt) wt.textContent = fmtClock(Timer.remaining);
-  document.title = Timer.running ? `${fmtClock(Timer.remaining)} · ${Timer.phase} — Café` : "Sister's Café — Study Tracker";
+  document.title = Timer.running ? `${fmtClock(Timer.remaining)} · ${Timer.phase} — Café` : "Sisters' Café — Study Tracker";
 }
 
 function toggleTimer() { Timer.running ? stopTimer(false) : startTimer(); }
@@ -1177,7 +1177,7 @@ function exportICS() {
       `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '')}`,
       timeStr ? `DTSTART:${icsDate(dateStr, timeStr)}` : `DTSTART;VALUE=DATE:${icsDate(dateStr)}`,
       `SUMMARY:${(title || '').replace(/[,;\n]/g, ' ')}`,
-      desc ? `DESCRIPTION:${desc.replace(/[,;\n]/g, ' ')}` : "DESCRIPTION:From Sister's Cafe Study Tracker",
+      desc ? `DESCRIPTION:${desc.replace(/[,;\n]/g, ' ')}` : "DESCRIPTION:From Sisters' Cafe Study Tracker",
       'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder', 'TRIGGER:-P1D', 'END:VALARM',
       'END:VEVENT');
   };

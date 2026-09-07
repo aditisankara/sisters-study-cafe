@@ -1,4 +1,4 @@
-/* Sister's Café Study Tracker — service worker (offline-first, no build step) */
+/* Sisters' Café Study Tracker — service worker (offline-first, no build step) */
 const CACHE = 'cafe-study-v1';
 const ASSETS = [
   './',

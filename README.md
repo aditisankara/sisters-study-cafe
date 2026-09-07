@@ -1,4 +1,4 @@
-# Sister's Café — Study Tracker
+# Sisters' Café — Study Tracker
 
 A cozy, offline-first study tracker. **No accounts, no server, no paid anything.**
 Pure HTML/CSS/JS + a service worker. Data lives in your browser (`localStorage`).
