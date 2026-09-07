@@ -1,5 +1,7 @@
 # Sisters' Café — Study Tracker
 
+**Live:** <https://aditisankara.github.io/sisters-study-cafe/>
+
 A cozy, offline-first study tracker. **No paid anything.**
 Pure HTML/CSS/JS + a service worker. Data lives in your browser (`localStorage`),
 with **optional** end-to-end-encrypted cloud sync via your own free Firebase project.
