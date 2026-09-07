@@ -1,10 +1,11 @@
 /* sisters cafe Study Tracker — service worker (offline-first, no build step) */
-const CACHE = 'cafe-study-v5';
+const CACHE = 'cafe-study-v6';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
   './js/app.js',
+  './firebase-config.js',
   './manifest.webmanifest',
   './icons/icon.svg'
 ];
@@ -23,6 +24,21 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const { request } = e;
   if (request.method !== 'GET') return;
+
+  // firebase-config.js: network-first so a freshly committed config propagates fast
+  if (new URL(request.url).pathname.endsWith('/firebase-config.js')) {
+    e.respondWith(
+      fetch(request).then((res) => {
+        if (res && res.status === 200 && res.type === 'basic') {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(request, copy));
+        }
+        return res;
+      }).catch(() => caches.match(request))
+    );
+    return;
+  }
+
   e.respondWith(
     caches.match(request).then((cached) => {
       const network = fetch(request).then((res) => {

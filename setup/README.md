@@ -25,15 +25,34 @@ project, so in the app you only paste the resulting config + a passphrase.
 3. **Run it:**
 
    ```bash
-   node setup/firebase-setup.mjs --project YOUR_PROJECT_ID --token PASTE_TOKEN_HERE
+   node setup/firebase-setup.mjs --project YOUR_PROJECT_ID --token PASTE_TOKEN_HERE --write-config
+   ```
+
+   `--write-config` also writes the config into `firebase-config.js` at the repo
+   root. Commit + push that file and **the app is wired to your project** — from
+   then on every device only needs a passphrase, no config pasting:
+
+   ```bash
+   git add firebase-config.js && git commit -m "wire cloud sync config" && git push
    ```
 
    It enables the APIs, adds Firebase, creates Firestore, publishes the security
    rules, turns on Anonymous sign-in, authorizes `aditisankara.github.io` +
    `localhost`, creates a Web App, and prints a `firebaseConfig` block.
 
-4. **In the app** (every device): Settings → ☁️ Cloud sync → paste that block →
-   choose a passphrase → Enable. Same config + same passphrase everywhere.
+4. **Lock the API key to your site** (do this if you committed `firebase-config.js`).
+   Firebase web keys aren't secrets, but you can still make the committed one
+   useless anywhere but your domain:
+   - <https://console.cloud.google.com/apis/credentials> → pick your project
+   - under **API keys**, open the auto-created "Browser key (auto created by Firebase)"
+   - **Application restrictions → Websites** → **Add**:
+     - `aditisankara.github.io/*`
+     - `localhost/*`
+   - Save. (Takes a few minutes to apply.)
+
+5. **In the app** (every device): Settings → ☁️ Cloud sync.
+   - If `firebase-config.js` is wired: just enter a passphrase → Enable.
+   - Otherwise: paste the config block too. Same passphrase everywhere.
 
 ## Flags
 

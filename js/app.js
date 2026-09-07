@@ -1372,6 +1372,12 @@ const SYNC = (() => {
   }
   function persist() { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
 
+  /* Config precedence: what the user typed in > the value baked into the
+     deployment (firebase-config.js). If a build ships a config, the user
+     only ever enters a passphrase. */
+  const bakedConfig = () => (window.CAFE_FIREBASE_CONFIG && window.CAFE_FIREBASE_CONFIG.apiKey) ? window.CAFE_FIREBASE_CONFIG : null;
+  const activeConfig = () => cfg.firebaseConfig || bakedConfig();
+
   /* Accept both strict JSON and the JS-object form Firebase's console shows
      (unquoted keys, trailing commas, optional `const firebaseConfig =` wrapper). */
   function parseFirebaseConfig(raw) {
@@ -1441,13 +1447,14 @@ const SYNC = (() => {
   }
 
   async function connect(opts = {}) {
-    if (!cfg.enabled || !cfg.firebaseConfig || !cfg.passphrase) return;
+    const fbConf = activeConfig();
+    if (!cfg.enabled || !fbConf || !cfg.passphrase) return;
     setStatus('connecting');
     try {
       cryptoKey = await deriveKey(cfg.passphrase);
       const docId = 'h_' + (await sha256Hex('cafe-study-household::' + cfg.passphrase)).slice(0, 40);
       const { app, fs, auth } = await loadFirebase();
-      const application = app.getApps?.().length ? app.getApp() : app.initializeApp(cfg.firebaseConfig);
+      const application = app.getApps?.().length ? app.getApp() : app.initializeApp(fbConf);
       try { await auth.signInAnonymously(auth.getAuth(application)); }
       catch (e) { console.warn('[sync] anonymous auth unavailable; relying on Firestore rules', e.code || e); }
       const db = fs.getFirestore(application);
@@ -1542,19 +1549,22 @@ const SYNC = (() => {
   function renderPanel(box, rerender) {
     onStatus = () => { const p = $('#syncMeta'); if (p) p.textContent = metaLine(); };
     if (!box) return;
+    const baked = bakedConfig();
     if (!cfg.enabled) {
       box.innerHTML = `
-        <label class="field"><span>1 · Firebase web config — paste the <code>{ … }</code> object straight from the Firebase console (quoted or unquoted keys both work)</span>
-          <textarea id="syncCfg" placeholder='{ "apiKey": "...", "projectId": "...", "appId": "..." }' style="min-height:110px;font-family:monospace;font-size:12px">${cfg.firebaseConfig ? esc(JSON.stringify(cfg.firebaseConfig, null, 2)) : ''}</textarea></label>
-        <label class="field"><span>2 · Sync passphrase (use the SAME one on every device — this is your encryption key)</span>
+        ${baked ? `<p class="muted" style="font-size:12px">This build is already wired to a Firebase project
+          (<code>${esc(baked.projectId)}</code>). Just choose a passphrase — everyone who shares it syncs together.</p>`
+        : `<label class="field"><span>1 · Firebase web config — paste the <code>{ … }</code> object straight from the Firebase console (quoted or unquoted keys both work)</span>
+          <textarea id="syncCfg" placeholder='{ "apiKey": "...", "projectId": "...", "appId": "..." }' style="min-height:110px;font-family:monospace;font-size:12px">${cfg.firebaseConfig ? esc(JSON.stringify(cfg.firebaseConfig, null, 2)) : ''}</textarea></label>`}
+        <label class="field"><span>${baked ? '' : '2 · '}Sync passphrase — use the SAME one on every device (it's your encryption key)</span>
           <input id="syncPass" type="text" autocomplete="off" placeholder="e.g. maple-latte-tuesday-7431" value="${esc(cfg.passphrase || '')}"></label>
         <div class="row">
           <button class="btn primary" id="syncEnable">Enable cloud sync</button>
           <button class="btn ghost" id="syncGen">🎲 Suggest passphrase</button>
         </div>
-        <p class="muted" style="font-size:12px">💡 Shortcut: run <code>node setup/firebase-setup.mjs</code> from the repo (see <code>setup/README.md</code>)
-          to auto-provision all of the below and print the config. Or do it by hand:</p>
-        <details style="margin-top:10px"><summary class="muted" style="font-size:12px;cursor:pointer">How to get a free Firebase project (one time, ~5 min)</summary>
+        ${baked ? '' : `<p class="muted" style="font-size:12px">💡 Shortcut: run <code>node setup/firebase-setup.mjs</code> from the repo (see <code>setup/README.md</code>)
+          to auto-provision all of the below and print the config. Or do it by hand:</p>`}
+        <details ${baked ? 'hidden' : ''} style="margin-top:10px"><summary class="muted" style="font-size:12px;cursor:pointer">How to get a free Firebase project (one time, ~5 min)</summary>
           <ol class="muted" style="font-size:12px;line-height:1.6">
             <li>Go to <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a> → <b>Add project</b> (free "Spark" plan, no card).</li>
             <li><b>Build → Firestore Database → Create database</b> (start in production mode, pick a region).</li>
@@ -1578,12 +1588,15 @@ service cloud.firestore {
           + '-' + (1000 + ((Math.random() * 9000) | 0));
       };
       $('#syncEnable').onclick = async () => {
-        const parsed = parseFirebaseConfig($('#syncCfg').value);
-        if (!parsed) return toast('⚠️ Could not read that config — paste the { … } object from Firebase');
-        if (!parsed.apiKey || !parsed.projectId) return toast('⚠️ Config needs at least apiKey + projectId');
+        let parsed = baked;
+        if (!baked) {
+          parsed = parseFirebaseConfig($('#syncCfg').value);
+          if (!parsed) return toast('⚠️ Could not read that config — paste the { … } object from Firebase');
+          if (!parsed.apiKey || !parsed.projectId) return toast('⚠️ Config needs at least apiKey + projectId');
+        }
         const pass = $('#syncPass').value.trim();
         if (pass.length < 8) return toast('⚠️ Passphrase must be at least 8 characters');
-        cfg.firebaseConfig = parsed; cfg.passphrase = pass; cfg.enabled = true; persist();
+        cfg.firebaseConfig = baked ? null : parsed; cfg.passphrase = pass; cfg.enabled = true; persist();
         toast('Connecting…');
         await connect({ askOnConflict: true });
         rerender && rerender();
@@ -1595,8 +1608,8 @@ service cloud.firestore {
           <button class="btn" id="syncNow">⟳ Sync now</button>
           <button class="btn danger" id="syncOff">Disconnect this device</button>
         </div>
-        <p class="muted" style="font-size:12px;margin-top:8px">To add another device: install the app there, open Settings → Cloud sync, paste the
-          <b>same</b> Firebase config and the <b>same</b> passphrase.</p>`;
+        <p class="muted" style="font-size:12px;margin-top:8px">To add another device: install the app there, open Settings → Cloud sync,
+          ${baked ? 'and enter the <b>same</b> passphrase.' : 'paste the <b>same</b> Firebase config and the <b>same</b> passphrase.'}</p>`;
       $('#syncNow').onclick = async () => { await connect({ askOnConflict: false }); toast('Synced'); };
       $('#syncOff').onclick = () => {
         if (!confirm('Stop syncing on this device? Your data stays here and in the cloud.')) return;
