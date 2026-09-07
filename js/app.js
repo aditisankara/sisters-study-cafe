@@ -64,6 +64,10 @@ let DB = loadDB();
 function saveDB() {
   try { localStorage.setItem(DB_KEY, JSON.stringify(DB)); }
   catch (e) { toast('⚠️ Could not save (storage full or blocked)'); }
+  try { SYNC.onLocalChange(); } catch (e) { /* sync module not ready yet */ }
+}
+function saveDBLocalOnly() {
+  try { localStorage.setItem(DB_KEY, JSON.stringify(DB)); } catch (e) {}
 }
 const profile = () => DB.profiles.find((p) => p.id === DB.activeProfileId) || null;
 const pdata = () => DB.data[DB.activeProfileId] || (DB.data[DB.activeProfileId] = freshProfileData());
@@ -819,6 +823,13 @@ function viewSettings(c) {
       </div>
     </div>
     <div class="card" style="margin-top:14px">
+      <div class="section-title"><h3>☁️ Cloud sync</h3><span class="pill" id="syncState">${SYNC.stateLabel()}</span></div>
+      <p class="muted" style="font-size:12px">Optional. Syncs all profiles &amp; data live across your phone and laptop using
+        your own <b>free</b> Firebase project. Data is <b>end-to-end encrypted</b> with your passphrase before it leaves the device —
+        Firebase only ever sees ciphertext. Leave this off to stay 100% local.</p>
+      <div id="syncPanel"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
       <h3>Data</h3>
       <div class="row">
         <button class="btn" id="expJson">⬇︎ Export backup (JSON)</button>
@@ -826,7 +837,7 @@ function viewSettings(c) {
         <button class="btn" id="expIcs">⬇︎ Export calendar (.ics)</button>
         <input type="file" id="impFile" accept="application/json" hidden>
       </div>
-      <p class="muted" style="font-size:12px;margin-top:8px">Data lives only in this browser/device. Export regularly to move between devices.</p>
+      <p class="muted" style="font-size:12px;margin-top:8px">Without cloud sync, data lives only in this browser/device — export regularly to move between devices.</p>
       <button class="btn danger" id="wipe" style="margin-top:8px">Delete this profile's data…</button>
     </div>
     <div class="card" style="margin-top:14px">
@@ -872,6 +883,7 @@ function viewSettings(c) {
     if (!deferredPrompt) return;
     deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt = null; $('#installBtn').disabled = true;
   };
+  SYNC.renderPanel($('#syncPanel'), () => { if (currentView() === 'settings') renderView('settings'); });
 }
 
 /* ============================================================
@@ -1113,9 +1125,11 @@ function notify(title, body) {
   }).catch(() => { try { new Notification(title, { body }); } catch (e) {} });
 }
 
+let reminderIv = null;
 function scheduleReminderChecks() {
   runDailyReminderDigest();
-  setInterval(runDailyReminderDigest, 60 * 60 * 1000); // hourly
+  if (reminderIv) return;
+  reminderIv = setInterval(runDailyReminderDigest, 60 * 60 * 1000); // hourly
 }
 function runDailyReminderDigest() {
   const p = profile(); if (!p || !p.notifOptIn) return;
@@ -1259,6 +1273,258 @@ if ('serviceWorker' in navigator) {
 }
 
 /* ============================================================
+   CLOUD SYNC  (optional, end-to-end encrypted, free Firebase)
+   ------------------------------------------------------------
+   - Stores the whole DB (all profiles + data) as one encrypted
+     blob in Firestore at households/<hash(passphrase)>.
+   - AES-GCM 256, key = PBKDF2(passphrase). Firebase sees only
+     ciphertext. Last-write-wins across devices.
+   ============================================================ */
+const FB_VER = '10.12.5';
+const SYNC = (() => {
+  const CFG_KEY = 'cafe-sync-cfg';
+  let cfg = load();
+  let deviceId = localStorage.getItem('cafe-device-id');
+  if (!deviceId) { deviceId = uid() + uid(); localStorage.setItem('cafe-device-id', deviceId); }
+
+  let fb = null;            // { db, docRef, unsub }
+  let cryptoKey = null;
+  let status = 'off';       // off | connecting | synced | offline | error
+  let lastError = '';
+  let lastSyncAt = 0;
+  let lastAppliedRemote = 0;
+  let pushTimer = null;
+  let applyingRemote = false;
+  let onStatus = () => {};
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function persist() { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
+
+  /* ---- crypto helpers ---- */
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  async function sha256Hex(str) {
+    const h = await crypto.subtle.digest('SHA-256', enc.encode(str));
+    return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  async function deriveKey(passphrase) {
+    const base = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: enc.encode('sisters-cafe-study-salt-v1'), iterations: 150000, hash: 'SHA-256' },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  async function encryptStr(plain) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, enc.encode(plain));
+    return b64(iv) + ':' + b64(ct);
+  }
+  async function decryptStr(payload) {
+    const [ivB, ctB] = payload.split(':');
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(ivB) }, cryptoKey, unb64(ctB));
+    return dec.decode(pt);
+  }
+
+  function setStatus(s, err) {
+    status = s; lastError = err || '';
+    const pill = $('#syncState'); if (pill) pill.textContent = stateLabel();
+    onStatus();
+  }
+  function stateLabel() {
+    if (!cfg.enabled) return 'Off';
+    return { connecting: 'Connecting…', synced: 'Synced ✓', offline: 'Offline — will retry', error: 'Error' }[status] || 'Off';
+  }
+
+  async function loadFirebase() {
+    const base = `https://www.gstatic.com/firebasejs/${FB_VER}`;
+    const [app, fs, auth] = await Promise.all([
+      import(`${base}/firebase-app.js`),
+      import(`${base}/firebase-firestore.js`),
+      import(`${base}/firebase-auth.js`),
+    ]);
+    return { app, fs, auth };
+  }
+
+  async function connect(opts = {}) {
+    if (!cfg.enabled || !cfg.firebaseConfig || !cfg.passphrase) return;
+    setStatus('connecting');
+    try {
+      cryptoKey = await deriveKey(cfg.passphrase);
+      const docId = 'h_' + (await sha256Hex('cafe-study-household::' + cfg.passphrase)).slice(0, 40);
+      const { app, fs, auth } = await loadFirebase();
+      const application = app.getApps?.().length ? app.getApp() : app.initializeApp(cfg.firebaseConfig);
+      try { await auth.signInAnonymously(auth.getAuth(application)); }
+      catch (e) { console.warn('[sync] anonymous auth unavailable; relying on Firestore rules', e.code || e); }
+      const db = fs.getFirestore(application);
+      const docRef = fs.doc(db, 'households', docId);
+      fb = { fs, db, docRef, unsub: null };
+
+      const snap = await fs.getDoc(docRef);
+      if (snap.exists() && snap.data().blob) {
+        let remote;
+        try { remote = JSON.parse(await decryptStr(snap.data().blob)); }
+        catch (e) { setStatus('error', 'Wrong passphrase or corrupt cloud data'); return; }
+        const localHasData = (DB.profiles || []).length > 0;
+        let useRemote = true;
+        if (localHasData && opts.askOnConflict) {
+          useRemote = confirm(
+            'Cloud data was found for this passphrase.\n\n' +
+            'OK  → use the CLOUD copy on this device (local data here is replaced)\n' +
+            'Cancel → keep THIS device\'s data and overwrite the cloud');
+        }
+        if (useRemote) {
+          DB = remote; saveDBLocalOnly();
+          lastAppliedRemote = snap.data().updatedAt || Date.now();
+          applyingRemote = true; applyRemoteToUI(); applyingRemote = false;
+        } else {
+          await push(true);
+        }
+      } else {
+        await push(true);
+      }
+      fb.unsub = fs.onSnapshot(docRef, (s) => onRemote(s), (err) => setStatus('error', err.message));
+      lastSyncAt = Date.now();
+      setStatus('synced');
+    } catch (e) {
+      console.error('[sync] connect failed', e);
+      setStatus(navigator.onLine ? 'error' : 'offline', e.message || String(e));
+    }
+  }
+
+  function onRemote(snap) {
+    if (!snap.exists() || applyingRemote) return;
+    if (snap.metadata.hasPendingWrites) return;
+    const data = snap.data();
+    if (!data.blob || data.device === deviceId) return;
+    if ((data.updatedAt || 0) <= lastAppliedRemote) return;
+    decryptStr(data.blob).then((json) => {
+      let remote; try { remote = JSON.parse(json); } catch (e) { return; }
+      if (!remote || !Array.isArray(remote.profiles)) return;
+      DB = remote; saveDBLocalOnly();
+      lastAppliedRemote = data.updatedAt || Date.now();
+      lastSyncAt = Date.now();
+      applyingRemote = true; applyRemoteToUI(); applyingRemote = false;
+      setStatus('synced');
+      toast('☁️ Synced from another device');
+    }).catch(() => {});
+  }
+
+  async function push(immediate) {
+    if (!fb || !cfg.enabled) return;
+    clearTimeout(pushTimer);
+    const doPush = async () => {
+      try {
+        const blob = await encryptStr(JSON.stringify(DB));
+        const updatedAt = Date.now();
+        await fb.fs.setDoc(fb.docRef, { blob, updatedAt, device: deviceId, ver: 1 });
+        lastAppliedRemote = updatedAt; lastSyncAt = updatedAt;
+        setStatus('synced');
+      } catch (e) {
+        console.error('[sync] push failed', e);
+        setStatus(navigator.onLine ? 'error' : 'offline', e.message);
+      }
+    };
+    if (immediate) return doPush();
+    pushTimer = setTimeout(doPush, 1500);
+  }
+
+  function onLocalChange() {
+    if (!cfg.enabled || !fb || applyingRemote) return;
+    push(false);
+  }
+
+  function applyRemoteToUI() {
+    const p = profile();
+    if (p) applyTheme(p.theme, p.mode);
+    if (!$('#widget').hidden) { renderWidget(); return; }
+    if (p) { bootApp(); }
+    else { DB.activeProfileId = null; renderGate(); }
+  }
+
+  window.addEventListener('online', () => { if (cfg.enabled && status !== 'synced') connect(); });
+
+  /* ---- settings panel UI ---- */
+  function renderPanel(box, rerender) {
+    onStatus = () => { const p = $('#syncMeta'); if (p) p.textContent = metaLine(); };
+    if (!box) return;
+    if (!cfg.enabled) {
+      box.innerHTML = `
+        <label class="field"><span>1 · Firebase web config (paste the JSON object from your Firebase project settings)</span>
+          <textarea id="syncCfg" placeholder='{ "apiKey": "...", "projectId": "...", "appId": "..." }' style="min-height:110px;font-family:monospace;font-size:12px">${cfg.firebaseConfig ? esc(JSON.stringify(cfg.firebaseConfig, null, 2)) : ''}</textarea></label>
+        <label class="field"><span>2 · Sync passphrase (use the SAME one on every device — this is your encryption key)</span>
+          <input id="syncPass" type="text" autocomplete="off" placeholder="e.g. maple-latte-tuesday-7431" value="${esc(cfg.passphrase || '')}"></label>
+        <div class="row">
+          <button class="btn primary" id="syncEnable">Enable cloud sync</button>
+          <button class="btn ghost" id="syncGen">🎲 Suggest passphrase</button>
+        </div>
+        <details style="margin-top:10px"><summary class="muted" style="font-size:12px;cursor:pointer">How to get a free Firebase project (one time, ~5 min)</summary>
+          <ol class="muted" style="font-size:12px;line-height:1.6">
+            <li>Go to <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a> → <b>Add project</b> (free "Spark" plan, no card).</li>
+            <li><b>Build → Firestore Database → Create database</b> (start in production mode, pick a region).</li>
+            <li><b>Build → Authentication → Get started → Anonymous → Enable.</b></li>
+            <li>Firestore → <b>Rules</b> → publish:<br>
+              <code style="display:block;white-space:pre-wrap;background:var(--surface-2);padding:8px;border-radius:6px">rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /households/{doc} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}</code></li>
+            <li>Project <b>⚙️ Settings → General → Your apps → Web app (&lt;/&gt;)</b> → register → copy the <code>firebaseConfig</code> object into the box above.</li>
+          </ol>
+          <p class="muted" style="font-size:12px">Your notes are encrypted on-device first, so the passphrase — not Firebase — is what actually protects them. Pick a long one.</p>
+        </details>`;
+      $('#syncGen').onclick = () => {
+        const w = ['maple','latte','matcha','sakura','cocoa','honey','amber','cedar','misty','quiet','velvet','ember','willow','pebble'];
+        $('#syncPass').value = Array.from({ length: 4 }, () => w[(Math.random() * w.length) | 0]).join('-')
+          + '-' + (1000 + ((Math.random() * 9000) | 0));
+      };
+      $('#syncEnable').onclick = async () => {
+        let parsed;
+        try { parsed = JSON.parse($('#syncCfg').value.trim()); }
+        catch (e) { return toast('⚠️ Firebase config is not valid JSON'); }
+        if (!parsed.apiKey || !parsed.projectId) return toast('⚠️ Config needs at least apiKey + projectId');
+        const pass = $('#syncPass').value.trim();
+        if (pass.length < 8) return toast('⚠️ Passphrase must be at least 8 characters');
+        cfg.firebaseConfig = parsed; cfg.passphrase = pass; cfg.enabled = true; persist();
+        toast('Connecting…');
+        await connect({ askOnConflict: true });
+        rerender && rerender();
+      };
+    } else {
+      box.innerHTML = `
+        <p id="syncMeta" class="muted" style="font-size:12px">${metaLine()}</p>
+        <div class="row">
+          <button class="btn" id="syncNow">⟳ Sync now</button>
+          <button class="btn danger" id="syncOff">Disconnect this device</button>
+        </div>
+        <p class="muted" style="font-size:12px;margin-top:8px">To add another device: install the app there, open Settings → Cloud sync, paste the
+          <b>same</b> Firebase config and the <b>same</b> passphrase.</p>`;
+      $('#syncNow').onclick = async () => { await connect({ askOnConflict: false }); toast('Synced'); };
+      $('#syncOff').onclick = () => {
+        if (!confirm('Stop syncing on this device? Your data stays here and in the cloud.')) return;
+        try { fb && fb.unsub && fb.unsub(); } catch (e) {}
+        fb = null; cfg.enabled = false; persist(); setStatus('off');
+        rerender && rerender();
+      };
+    }
+  }
+  function metaLine() {
+    const ago = lastSyncAt ? Math.round((Date.now() - lastSyncAt) / 1000) : null;
+    const when = ago == null ? 'not yet' : ago < 60 ? `${ago}s ago` : `${Math.round(ago / 60)}m ago`;
+    let s = `Status: ${stateLabel()} · last sync ${when} · this device: ${deviceId.slice(0, 6)}`;
+    if (lastError) s += `\n${lastError}`;
+    return s;
+  }
+
+  return { connect, onLocalChange, renderPanel, stateLabel, get enabled() { return !!cfg.enabled; } };
+})();
+
+/* ============================================================
    BOOT
    ============================================================ */
 function init() {
@@ -1269,9 +1535,11 @@ function init() {
     if (widgetMode && DB.profiles[0]) { DB.activeProfileId = DB.profiles[0].id; }
   }
 
-  if (widgetMode && profile()) { renderWidget(); return; }
-  if (profile()) { applyTheme(profile().theme, profile().mode); bootApp(); }
+  if (widgetMode && profile()) { renderWidget(); }
+  else if (profile()) { applyTheme(profile().theme, profile().mode); bootApp(); }
   else renderGate();
+
+  if (SYNC.enabled) SYNC.connect({ askOnConflict: false });
 }
 init();
 

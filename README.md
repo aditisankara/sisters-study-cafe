@@ -1,7 +1,8 @@
 # Sisters' Café — Study Tracker
 
-A cozy, offline-first study tracker. **No accounts, no server, no paid anything.**
-Pure HTML/CSS/JS + a service worker. Data lives in your browser (`localStorage`).
+A cozy, offline-first study tracker. **No paid anything.**
+Pure HTML/CSS/JS + a service worker. Data lives in your browser (`localStorage`),
+with **optional** end-to-end-encrypted cloud sync via your own free Firebase project.
 
 ## Features
 
@@ -15,7 +16,8 @@ Pure HTML/CSS/JS + a service worker. Data lives in your browser (`localStorage`)
 - **Stats & gamification** — focus streaks, levels, 26-week heatmap, 7-day bar chart, 10 achievements, confetti.
 - **Widget mode** — `?widget=1` compact view (timer + next 7 days + today's tasks) to pin to a home screen.
 - **PWA** — installable on desktop, Android, and iOS; works fully offline.
-- **Backup** — export/import JSON to move between devices.
+- **Cloud sync (optional)** — live phone↔laptop sync of all profiles & data. End-to-end encrypted (AES-GCM, key derived from your passphrase) *before* it leaves the device, so Firebase only ever stores ciphertext. Uses the Firebase free "Spark" plan — no credit card. Off by default.
+- **Backup** — export/import JSON to move between devices without any account.
 - **Keyboard shortcuts** — `g` then `d/p/c/f/r/s/t` to navigate; `space` to start/pause the timer.
 
 ## Run it
@@ -35,6 +37,31 @@ Then open `http://localhost:8000`.
 
 Push to GitHub and enable **GitHub Pages** (Settings → Pages → deploy from branch).
 Also works on Netlify / Cloudflare Pages / Vercel free tiers — it's just static files.
+
+## Cross-device sync setup (optional, free)
+
+Settings → **Cloud sync** has an in-app walkthrough. Short version:
+
+1. Create a free Firebase project at <https://console.firebase.google.com> (Spark plan, no card).
+2. **Firestore Database → Create** (production mode).
+3. **Authentication → Anonymous → Enable.**
+4. Firestore **Rules**:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{db}/documents {
+       match /households/{doc} {
+         allow read, write: if request.auth != null;
+       }
+     }
+   }
+   ```
+5. Project **Settings → Your apps → Web app** → copy the `firebaseConfig` object.
+6. In the app: paste that config + a long **passphrase**. Repeat on every device with the
+   **same** config and **same** passphrase. Data syncs live (last-write-wins).
+
+The passphrase is the real key — it encrypts everything client-side (AES-GCM, PBKDF2).
+Firebase stores only an opaque blob at `households/h_<hash(passphrase)>`.
 
 ## "Real" native widgets
 
