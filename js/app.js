@@ -101,18 +101,31 @@ function confetti() {
 }
 
 /* ---------------- theme ---------------- */
-function applyTheme(id) {
+function applyTheme(id, mode) {
   document.body.dataset.theme = THEMES.find((t) => t.id === id) ? id : 'cafe';
+  document.body.dataset.mode = mode === 'dark' ? 'dark' : 'light';
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = (THEMES.find((t) => t.id === id) || THEMES[0]).color;
+  if (meta) {
+    const bg = getComputedStyle(document.body).getPropertyValue('--bg').trim();
+    meta.content = bg || (THEMES.find((t) => t.id === id) || THEMES[0]).color;
+  }
+}
+function toggleMode() {
+  const p = profile(); if (!p) return;
+  p.mode = p.mode === 'dark' ? 'light' : 'dark';
+  saveDB();
+  applyTheme(p.theme, p.mode);
+  const b = $('#modeToggle'); if (b) b.textContent = p.mode === 'dark' ? '☀️' : '🌙';
 }
 
 /* ============================================================
    GATE  (profile selection / creation)
    ============================================================ */
 let gateTheme = 'cafe';
+let gateMode = 'light';
 function renderGate() {
   $('#gate').hidden = false; $('#app').hidden = true; $('#widget').hidden = true;
+  applyTheme(gateTheme, gateMode);
   const list = $('#profileList');
   list.innerHTML = DB.profiles.length ? '' : '<p class="muted">No profiles yet — create one below.</p>';
   DB.profiles.forEach((p) => {
@@ -144,13 +157,17 @@ function renderGate() {
     s.addEventListener('click', () => { gateTheme = t.id; renderGate(); });
     sw.appendChild(s);
   });
+  $$('#gateMode [data-mode]').forEach((b) => {
+    b.classList.toggle('primary', b.dataset.mode === gateMode);
+    b.onclick = () => { gateMode = b.dataset.mode; renderGate(); };
+  });
 }
 $('#newProfileForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const name = $('#newProfileName').value.trim();
   if (!name) return;
   const id = uid();
-  const p = { id, name, theme: gateTheme, avatar: AVATARS[(Math.random() * AVATARS.length) | 0],
+  const p = { id, name, theme: gateTheme, mode: gateMode, avatar: AVATARS[(Math.random() * AVATARS.length) | 0],
     focusDuration: 45, breakDuration: 10, longBreak: 25, notifOptIn: false };
   DB.profiles.push(p);
   DB.data[id] = freshProfileData();
@@ -160,7 +177,7 @@ $('#newProfileForm').addEventListener('submit', (e) => {
 });
 function selectProfile(id) {
   DB.activeProfileId = id; saveDB();
-  applyTheme(profile().theme);
+  applyTheme(profile().theme, profile().mode);
   bootApp();
 }
 
@@ -180,7 +197,10 @@ window.addEventListener('hashchange', () => {
 function bootApp() {
   $('#gate').hidden = true; $('#widget').hidden = true; $('#app').hidden = false;
   const p = profile();
+  if (!p.mode) p.mode = p.theme === 'midnight' ? 'dark' : 'light';
+  applyTheme(p.theme, p.mode);
   $('#profileAvatar').textContent = p.avatar || '🙂';
+  $('#modeToggle').textContent = p.mode === 'dark' ? '☀️' : '🌙';
   renderView(currentView());
   updateTopbar();
   scheduleReminderChecks();
@@ -200,6 +220,7 @@ $('#sidenav').addEventListener('click', (e) => {
   $('#sidenav').classList.remove('open');
 });
 $('#menuToggle').addEventListener('click', () => $('#sidenav').classList.toggle('open'));
+$('#modeToggle').addEventListener('click', () => { toggleMode(); if (!$('#app').hidden) renderView(currentView()); });
 $('#profileBtn').addEventListener('click', () => { DB.activeProfileId = null; saveDB(); renderGate(); });
 
 function setActiveNav(view) {
@@ -784,6 +805,11 @@ function viewSettings(c) {
         <div class="row" id="avatarPick">${AVATARS.map((a) => `<button class="btn small ${a === p.avatar ? 'primary' : ''}" data-av="${a}">${a}</button>`).join('')}</div></label>
       <label class="field"><span>Theme (aesthetic)</span>
         <div class="theme-swatches" id="setThemes"></div></label>
+      <label class="field"><span>Appearance</span>
+        <div class="row" id="setMode">
+          <button type="button" class="btn small ${p.mode !== 'dark' ? 'primary' : ''}" data-mode="light">☀️ Light</button>
+          <button type="button" class="btn small ${p.mode === 'dark' ? 'primary' : ''}" data-mode="dark">🌙 Dark</button>
+        </div></label>
     </div>
     <div class="card" style="margin-top:14px">
       <h3>Focus defaults</h3>
@@ -823,8 +849,13 @@ function viewSettings(c) {
     s.type = 'button'; s.className = 'swatch'; s.style.background = t.color;
     s.setAttribute('aria-pressed', String(t.id === p.theme));
     s.innerHTML = `<span>${t.name}</span>`;
-    s.onclick = () => { p.theme = t.id; saveDB(); applyTheme(t.id); viewSettings(c); updateTopbar(); };
+    s.onclick = () => { p.theme = t.id; saveDB(); applyTheme(t.id, p.mode); viewSettings(c); updateTopbar(); };
     st.appendChild(s);
+  });
+  $$('#setMode [data-mode]').forEach((b) => b.onclick = () => {
+    p.mode = b.dataset.mode; saveDB(); applyTheme(p.theme, p.mode);
+    $('#modeToggle').textContent = p.mode === 'dark' ? '☀️' : '🌙';
+    viewSettings(c);
   });
   $('#setFocus').onchange = (e) => { p.focusDuration = clamp(+e.target.value || 45, 5, 180); saveDB(); };
   $('#setBreak').onchange = (e) => { p.breakDuration = clamp(+e.target.value || 10, 1, 60); saveDB(); };
@@ -1179,7 +1210,7 @@ function renderWidget() {
   $('#gate').hidden = true; $('#app').hidden = true; $('#widget').hidden = false;
   const p = profile();
   if (!p) { $('#widgetProfile').textContent = 'Open app to set up'; return; }
-  applyTheme(p.theme);
+  applyTheme(p.theme, p.mode);
   $('#widgetProfile').textContent = `${p.avatar || '☕'} ${p.name}`;
   Timer.total = Timer.total || p.focusDuration * 60;
   Timer.remaining = Timer.remaining || Timer.total;
@@ -1239,7 +1270,7 @@ function init() {
   }
 
   if (widgetMode && profile()) { renderWidget(); return; }
-  if (profile()) { applyTheme(profile().theme); bootApp(); }
+  if (profile()) { applyTheme(profile().theme, profile().mode); bootApp(); }
   else renderGate();
 }
 init();

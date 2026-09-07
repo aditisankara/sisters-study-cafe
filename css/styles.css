@@ -1,6 +1,7 @@
 /* ============================================================
    Sister's Café — Study Tracker
-   Themes via [data-theme] on <body>. All colors are tokens.
+   Color family via [data-theme] + light/dark via [data-mode] on <body>.
+   Each of the 4 families has an explicit light block and a dark override.
    ============================================================ */
 
 :root {
@@ -11,7 +12,10 @@
   --sp: 16px;
 }
 
-/* ---------- THEME: Café (warm, default) ---------- */
+/* shared dark-mode shadow */
+[data-mode="dark"] { --shadow: 0 6px 28px rgba(0,0,0,.45); }
+
+/* ======================= CAFÉ ======================= */
 [data-theme="cafe"] {
   --bg: #f5ece1;
   --bg-2: #efe2d2;
@@ -26,7 +30,22 @@
   --warn: #d98b3a;
   --bad: #c25b4e;
 }
-/* ---------- THEME: Matcha ---------- */
+[data-theme="cafe"][data-mode="dark"] {
+  --bg: #1e1813;
+  --bg-2: #26201a;
+  --surface: #2b241c;
+  --surface-2: #372d23;
+  --text: #f3e8d9;
+  --text-soft: #bda98f;
+  --border: #453729;
+  --accent: #d99a68;
+  --accent-ink: #1e1813;
+  --good: #86b072;
+  --warn: #e0a457;
+  --bad: #e07a6c;
+}
+
+/* ======================= MATCHA ======================= */
 [data-theme="matcha"] {
   --bg: #eef2e6;
   --bg-2: #e3ecd6;
@@ -41,8 +60,37 @@
   --warn: #cf9a3c;
   --bad: #c25b4e;
 }
-/* ---------- THEME: Midnight (dark) ---------- */
+[data-theme="matcha"][data-mode="dark"] {
+  --bg: #151a13;
+  --bg-2: #1c2219;
+  --surface: #21281f;
+  --surface-2: #2c3529;
+  --text: #e8efdf;
+  --text-soft: #a9ba9d;
+  --border: #384330;
+  --accent: #9dc077;
+  --accent-ink: #151a13;
+  --good: #7fc78f;
+  --warn: #d7ab5a;
+  --bad: #e07a6c;
+}
+
+/* ======================= MIDNIGHT ======================= */
 [data-theme="midnight"] {
+  --bg: #f1f0fb;
+  --bg-2: #e7e5f7;
+  --surface: #ffffff;
+  --surface-2: #f0eefb;
+  --text: #232135;
+  --text-soft: #6f6b8c;
+  --border: #ddd9ef;
+  --accent: #7c6cf0;
+  --accent-ink: #ffffff;
+  --good: #3fae87;
+  --warn: #cf9a3c;
+  --bad: #d1584f;
+}
+[data-theme="midnight"][data-mode="dark"] {
   --bg: #14131f;
   --bg-2: #1b1a29;
   --surface: #211f31;
@@ -55,9 +103,9 @@
   --good: #63c79b;
   --warn: #e0a94f;
   --bad: #ef7a74;
-  --shadow: 0 6px 28px rgba(0,0,0,.45);
 }
-/* ---------- THEME: Sakura ---------- */
+
+/* ======================= SAKURA ======================= */
 [data-theme="sakura"] {
   --bg: #fdeef2;
   --bg-2: #fbe1ea;
@@ -71,6 +119,20 @@
   --good: #6b9f7e;
   --warn: #db9a4a;
   --bad: #d15f74;
+}
+[data-theme="sakura"][data-mode="dark"] {
+  --bg: #1f151a;
+  --bg-2: #271b21;
+  --surface: #2c1e26;
+  --surface-2: #382730;
+  --text: #f6e3ea;
+  --text-soft: #c8a3b1;
+  --border: #46313b;
+  --accent: #e89db8;
+  --accent-ink: #1f151a;
+  --good: #82b394;
+  --warn: #dca85c;
+  --bad: #e0788c;
 }
 
 * { box-sizing: border-box; }

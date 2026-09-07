@@ -5,7 +5,7 @@ Pure HTML/CSS/JS + a service worker. Data lives in your browser (`localStorage`)
 
 ## Features
 
-- **Multiple profiles**, each with its own data and one of 4 aesthetic themes: Café, Matcha, Midnight, Sakura.
+- **Multiple profiles**, each with its own data, one of 4 aesthetic themes (Café, Matcha, Midnight, Sakura), and an independent **light / dark** mode — 8 looks total. Toggle with the 🌙 button in the header or in Settings.
 - **Task dump** — brain-dump tasks fast, triage later. Drag them into the planner.
 - **Daily & weekly planner** — 7-day columns, drag-and-drop scheduling, inline editing.
 - **Calendar** — month view with deadlines / exams / events. Link tasks to events (auto-sets due dates).

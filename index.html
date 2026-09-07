@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="./icons/icon.svg" />
   <link rel="stylesheet" href="./css/styles.css" />
 </head>
-<body data-theme="cafe">
+<body data-theme="cafe" data-mode="light">
 
   <!-- ============ ONBOARDING / PROFILE GATE ============ -->
   <div id="gate" class="gate" hidden>
@@ -21,6 +21,10 @@
       <form id="newProfileForm" class="new-profile">
         <input id="newProfileName" maxlength="24" placeholder="New profile name…" required />
         <div class="theme-swatches" id="gateThemes"></div>
+        <div class="row" id="gateMode">
+          <button type="button" class="btn small" data-mode="light">☀️ Light</button>
+          <button type="button" class="btn small" data-mode="dark">🌙 Dark</button>
+        </div>
         <button class="btn primary" type="submit">Create profile</button>
       </form>
     </div>
@@ -55,6 +59,7 @@
       <div class="topbar-right">
         <span id="streakPill" class="pill" title="Focus streak">🔥 0</span>
         <span id="levelPill" class="pill" title="Level from focus minutes">Lv 1</span>
+        <button class="icon-btn" id="modeToggle" title="Light / dark">🌙</button>
         <button class="icon-btn" id="profileBtn" title="Switch profile"><span id="profileAvatar">🙂</span></button>
       </div>
     </header>
