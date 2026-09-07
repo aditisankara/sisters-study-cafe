@@ -1,5 +1,5 @@
 /* ============================================================
-   Sisters' Café — Study Tracker
+   sisters cafe — study tracker
    Single-file vanilla JS. No build, no dependencies, offline-first.
    Persistence: localStorage. Works as web app / installed PWA / widget.
    ============================================================ */
@@ -333,7 +333,7 @@ function installHint() {
   const ua = navigator.userAgent;
   if (/iPhone|iPad|iPod/.test(ua)) return 'iPhone/iPad: tap the Share button in Safari, then “Add to Home Screen”.';
   if (/Android/.test(ua)) return 'Android: open the ⋮ menu in Chrome, then “Install app” / “Add to Home screen”.';
-  return 'Desktop: click the install icon in the address bar, or the browser menu → “Install Sisters’ Café…”.';
+  return 'Desktop: click the install icon in the address bar, or the browser menu → “Install sisters cafe…”.';
 }
 function renderOnboarding(box) {
   if (!box) return;
@@ -669,7 +669,7 @@ function paintTimer() {
   const st = $('#tStart'); if (st) st.textContent = Timer.running ? 'Pause' : (Timer.remaining < Timer.total ? 'Resume' : 'Start');
   // widget mirror
   const wt = $('#widgetTimer'); if (wt) wt.textContent = fmtClock(Timer.remaining);
-  document.title = Timer.running ? `${fmtClock(Timer.remaining)} · ${Timer.phase} — Café` : "Sisters' Café — Study Tracker";
+  document.title = Timer.running ? `${fmtClock(Timer.remaining)} · ${Timer.phase} — sisters cafe` : "sisters cafe — study tracker";
 }
 
 function toggleTimer() { Timer.running ? stopTimer(false) : startTimer(); }
@@ -1255,13 +1255,13 @@ function icsDate(dateStr, timeStr) {
 }
 function exportICS() {
   const d = pdata();
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Sisters Cafe//Study Tracker//EN', 'CALSCALE:GREGORIAN'];
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//sisters cafe//Study Tracker//EN', 'CALSCALE:GREGORIAN'];
   const push = (title, dateStr, timeStr, desc, uidStr) => {
     lines.push('BEGIN:VEVENT', `UID:${uidStr}@cafe-study`,
       `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '')}`,
       timeStr ? `DTSTART:${icsDate(dateStr, timeStr)}` : `DTSTART;VALUE=DATE:${icsDate(dateStr)}`,
       `SUMMARY:${(title || '').replace(/[,;\n]/g, ' ')}`,
-      desc ? `DESCRIPTION:${desc.replace(/[,;\n]/g, ' ')}` : "DESCRIPTION:From Sisters' Cafe Study Tracker",
+      desc ? `DESCRIPTION:${desc.replace(/[,;\n]/g, ' ')}` : "DESCRIPTION:From sisters cafe study tracker",
       'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder', 'TRIGGER:-P1D', 'END:VALARM',
       'END:VEVENT');
   };

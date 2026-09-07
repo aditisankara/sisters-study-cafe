@@ -1,4 +1,4 @@
-# Sisters' Café — Study Tracker
+# sisters cafe — study tracker
 
 **Live:** <https://aditisankara.github.io/sisters-study-cafe/>
 
