@@ -1302,6 +1302,28 @@ const SYNC = (() => {
   }
   function persist() { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
 
+  /* Accept both strict JSON and the JS-object form Firebase's console shows
+     (unquoted keys, trailing commas, optional `const firebaseConfig =` wrapper). */
+  function parseFirebaseConfig(raw) {
+    if (!raw) return null;
+    let s = String(raw).trim();
+    const a = s.indexOf('{'), b = s.lastIndexOf('}');
+    if (a === -1 || b === -1) return null;
+    s = s.slice(a, b + 1);
+    try { return JSON.parse(s); } catch (e) { /* try lenient */ }
+    try {
+      const fixed = s
+        .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')  // quote keys
+        .replace(/'/g, '"')                                        // single -> double quotes
+        .replace(/,(\s*[}\]])/g, '$1');                            // drop trailing commas
+      return JSON.parse(fixed);
+    } catch (e) { /* last resort */ }
+    try {
+      const obj = (new Function('return (' + s + ')'))();
+      return obj && typeof obj === 'object' ? obj : null;
+    } catch (e) { return null; }
+  }
+
   /* ---- crypto helpers ---- */
   const enc = new TextEncoder();
   const dec = new TextDecoder();
@@ -1452,7 +1474,7 @@ const SYNC = (() => {
     if (!box) return;
     if (!cfg.enabled) {
       box.innerHTML = `
-        <label class="field"><span>1 · Firebase web config (paste the JSON object from your Firebase project settings)</span>
+        <label class="field"><span>1 · Firebase web config — paste the <code>{ … }</code> object straight from the Firebase console (quoted or unquoted keys both work)</span>
           <textarea id="syncCfg" placeholder='{ "apiKey": "...", "projectId": "...", "appId": "..." }' style="min-height:110px;font-family:monospace;font-size:12px">${cfg.firebaseConfig ? esc(JSON.stringify(cfg.firebaseConfig, null, 2)) : ''}</textarea></label>
         <label class="field"><span>2 · Sync passphrase (use the SAME one on every device — this is your encryption key)</span>
           <input id="syncPass" type="text" autocomplete="off" placeholder="e.g. maple-latte-tuesday-7431" value="${esc(cfg.passphrase || '')}"></label>
@@ -1484,9 +1506,8 @@ service cloud.firestore {
           + '-' + (1000 + ((Math.random() * 9000) | 0));
       };
       $('#syncEnable').onclick = async () => {
-        let parsed;
-        try { parsed = JSON.parse($('#syncCfg').value.trim()); }
-        catch (e) { return toast('⚠️ Firebase config is not valid JSON'); }
+        const parsed = parseFirebaseConfig($('#syncCfg').value);
+        if (!parsed) return toast('⚠️ Could not read that config — paste the { … } object from Firebase');
         if (!parsed.apiKey || !parsed.projectId) return toast('⚠️ Config needs at least apiKey + projectId');
         const pass = $('#syncPass').value.trim();
         if (pass.length < 8) return toast('⚠️ Passphrase must be at least 8 characters');
