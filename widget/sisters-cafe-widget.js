@@ -134,6 +134,10 @@ async function loadFirebaseConfig() {
   }
 }
 
+/* The API key is HTTP-referrer restricted to the app's domain. Scriptable sends
+   no Referer, which Google blocks — so we send the allowed one explicitly. */
+const REFERER = "https://aditisankara.github.io/sisters-study-cafe/";
+
 /* ---------------- data ---------------- */
 async function fetchDB(pass) {
   const fb = await loadFirebaseConfig();
@@ -141,14 +145,14 @@ async function fetchDB(pass) {
 
   const authReq = new Request(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${fb.apiKey}`);
   authReq.method = "POST";
-  authReq.headers = { "Content-Type": "application/json" };
+  authReq.headers = { "Content-Type": "application/json", "Referer": REFERER, "Origin": "https://aditisankara.github.io" };
   authReq.body = JSON.stringify({ returnSecureToken: true });
   const auth = await authReq.loadJSON();
   if (!auth || !auth.idToken) throw new Error("sign-in failed (" + ((auth && auth.error && auth.error.message) || "?") + ")");
 
   const url = `https://firestore.googleapis.com/v1/projects/${fb.projectId}/databases/(default)/documents/households/${docId}`;
   const docReq = new Request(url);
-  docReq.headers = { Authorization: "Bearer " + auth.idToken };
+  docReq.headers = { Authorization: "Bearer " + auth.idToken, "Referer": REFERER, "Origin": "https://aditisankara.github.io" };
   const doc = await docReq.loadJSON();
   const status = docReq.response.statusCode;
   if (status === 404) throw new Error("no synced data yet — enable Cloud sync in the app first");
