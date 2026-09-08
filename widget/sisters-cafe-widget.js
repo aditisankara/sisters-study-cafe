@@ -60,16 +60,31 @@ const CRYPTO_LIB = `
   }
 `;
 
-async function evalInWebView(body) {
+async function evalCrypto(expr) {
   const wv = new WebView();
-  await wv.loadHTML("<html><body></body></html>", "https://sisters-cafe.local");
+  // baseURL must be https so the WebView counts as a secure context (crypto.subtle)
+  await wv.loadHTML("<html><body></body></html>", "https://sisters-cafe.local/");
   const js = `${CRYPTO_LIB}
     (async () => {
-      try { const __r = await (async () => { ${body} })(); completion(__r); }
-      catch (e) { completion({ __error: String((e && e.message) || e) }); }
-    })();`;
+      try {
+        if (!(self.crypto && self.crypto.subtle)) {
+          const m = "__ERR__:WebCrypto unavailable";
+          if (typeof completion === "function") completion(m);
+          return m;
+        }
+        const r = await (${expr});
+        const v = (typeof r === "string" && r.length) ? r : ("__ERR__:bad result " + typeof r);
+        if (typeof completion === "function") completion(v);
+        return v;
+      } catch (e) {
+        const m = "__ERR__:" + String((e && e.message) || e);
+        if (typeof completion === "function") completion(m);
+        return m;
+      }
+    })()`;
   const out = await wv.evaluateJavaScript(js, true);
-  if (out && out.__error) throw new Error(out.__error);
+  if (typeof out !== "string") throw new Error("crypto bridge returned " + typeof out);
+  if (out.indexOf("__ERR__:") === 0) throw new Error(out.slice(8));
   return out;
 }
 
@@ -115,7 +130,7 @@ async function loadFirebaseConfig() {
 /* ---------------- data ---------------- */
 async function fetchDB(pass) {
   const fb = await loadFirebaseConfig();
-  const docId = await evalInWebView(`return _docId(${JSON.stringify(pass)});`);
+  const docId = await evalCrypto(`_docId(${JSON.stringify(pass)})`);
 
   const authReq = new Request(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${fb.apiKey}`);
   authReq.method = "POST";
@@ -134,7 +149,7 @@ async function fetchDB(pass) {
   const blob = doc && doc.fields && doc.fields.blob && doc.fields.blob.stringValue;
   if (!blob) throw new Error("empty sync document");
 
-  const plain = await evalInWebView(`return _decrypt(${JSON.stringify(pass)}, ${JSON.stringify(blob)});`);
+  const plain = await evalCrypto(`_decrypt(${JSON.stringify(pass)}, ${JSON.stringify(blob)})`);
   return JSON.parse(plain);
 }
 
