@@ -60,30 +60,37 @@ const CRYPTO_LIB = `
   }
 `;
 
+function _delay(ms) { return new Promise((res) => { Timer.schedule(ms, false, res); }); }
+
+/* Runs an async crypto expression in a WebView (for crypto.subtle) and reads
+   the result back by polling a global — avoids every evaluateJavaScript
+   return-type quirk (the "unsupported type" error). */
 async function evalCrypto(expr) {
   const wv = new WebView();
-  // baseURL must be https so the WebView counts as a secure context (crypto.subtle)
-  await wv.loadHTML("<html><body></body></html>", "https://sisters-cafe.local/");
-  const js = `${CRYPTO_LIB}
+  await wv.loadHTML("<html><body></body></html>", "https://localhost"); // https ⇒ secure context
+  const kick = `
+    ${CRYPTO_LIB}
+    window.__cw = { done: false, out: null };
     (async () => {
       try {
-        if (!(self.crypto && self.crypto.subtle)) {
-          const m = "__ERR__:WebCrypto unavailable";
-          if (typeof completion === "function") completion(m);
-          return m;
+        if (!(self.crypto && self.crypto.subtle)) { window.__cw.out = "__ERR__:WebCrypto unavailable"; }
+        else {
+          var r = await (${expr});
+          window.__cw.out = (typeof r === "string" && r.length) ? r : ("__ERR__:bad result " + typeof r);
         }
-        const r = await (${expr});
-        const v = (typeof r === "string" && r.length) ? r : ("__ERR__:bad result " + typeof r);
-        if (typeof completion === "function") completion(v);
-        return v;
-      } catch (e) {
-        const m = "__ERR__:" + String((e && e.message) || e);
-        if (typeof completion === "function") completion(m);
-        return m;
-      }
-    })()`;
-  const out = await wv.evaluateJavaScript(js, true);
-  if (typeof out !== "string") throw new Error("crypto bridge returned " + typeof out);
+      } catch (e) { window.__cw.out = "__ERR__:" + String((e && e.message) || e); }
+      window.__cw.done = true;
+    })();
+    true;
+  `;
+  await wv.evaluateJavaScript(kick);
+  let out = null;
+  for (let i = 0; i < 120; i++) {
+    const done = await wv.evaluateJavaScript("!!(window.__cw && window.__cw.done)");
+    if (done) { out = await wv.evaluateJavaScript("window.__cw.out"); break; }
+    await _delay(100);
+  }
+  if (typeof out !== "string") throw new Error("crypto timed out / bad bridge");
   if (out.indexOf("__ERR__:") === 0) throw new Error(out.slice(8));
   return out;
 }
