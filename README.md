@@ -83,9 +83,15 @@ in [`setup/README.md`](setup/README.md).
 The passphrase is the real key — it encrypts everything client-side (AES-GCM, PBKDF2).
 Firebase stores only an opaque blob at `households/h_<hash(passphrase)>`.
 
-## "Real" native widgets
+## Phone widgets
 
-True OS home-screen widgets (Android App Widgets / iOS WidgetKit) require a native
-wrapper and can't be done from a pure web app. The included **widget mode** + "Add to
-Home Screen" is the free, no-store-account way to get a glanceable shortcut. For native
-alarms, the `.ics` export into Google/Apple Calendar is the recommended path.
+- **One-tap shortcut (any phone):** add `?widget=1` to your home screen for a fast
+  compact view (timer + next 7 days + today's tasks).
+- **iPhone live widget:** [`widget/README.md`](widget/README.md) — a Scriptable
+  script that renders today's tasks / reminders / focus minutes as a real
+  home-screen widget, decrypting your synced data on-device.
+- **Android live widget:** not built yet (planned — a CI-built APK).
+
+A truly live widget can't come from the web app itself; iOS needs WidgetKit and
+Android needs an App Widget, both native. For native *alarms*, `.ics` export into
+Google/Apple Calendar is the free path.

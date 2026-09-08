@@ -1,3 +1,7 @@
 node_modules/
 .DS_Store
 *.log
+
+# Cloud-sync config is injected at deploy time from the FIREBASE_CONFIG repo secret.
+# Keep a local copy for `python -m http.server` testing; never commit it.
+firebase-config.js

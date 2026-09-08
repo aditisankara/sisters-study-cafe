@@ -1,0 +1,54 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inject firebase-config.js from repo secret
+        env:
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const raw = process.env.FIREBASE_CONFIG || "";
+            let obj = null;
+            if (raw.trim()) {
+              try { obj = JSON.parse(raw); }
+              catch (e) { console.error("::error::FIREBASE_CONFIG secret is not valid JSON"); process.exit(1); }
+            } else {
+              console.log("::warning::FIREBASE_CONFIG secret is empty — cloud sync will fall back to in-app config entry");
+            }
+            const body = "/* Generated at deploy time from the FIREBASE_CONFIG repo secret. Do not edit. */\n"
+              + "window.CAFE_FIREBASE_CONFIG = " + JSON.stringify(obj, null, 2) + ";\n";
+            fs.writeFileSync("firebase-config.js", body);
+            console.log("wrote firebase-config.js (" + (obj ? obj.projectId : "null") + ")");
+          '
+
+      - name: Trim files we do not need to publish
+        run: rm -rf .git .github setup memory widget firebase-config.example.js
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

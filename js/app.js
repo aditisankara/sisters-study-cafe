@@ -914,7 +914,8 @@ function viewSettings(c) {
       <h3>Install &amp; widgets</h3>
       <p class="muted" style="font-size:13px">
         • <b>Desktop / phone app:</b> open in Chrome/Edge/Safari → menu → “Install app” / “Add to Home Screen”.<br>
-        • <b>Widget mode:</b> <a href="?widget=1#widget">open compact widget</a> — add it to your home screen for a glanceable timer + reminders.<br>
+        • <b>Widget shortcut:</b> <a href="?widget=1#widget">open compact widget</a> — add it to your home screen for a one-tap glanceable timer + reminders.<br>
+        • <b>iPhone home-screen widget:</b> a real live widget via the free Scriptable app — see <code>widget/README.md</code> in the repo.<br>
         • <b>Keyboard:</b> <kbd>g</kbd> then <kbd>d/p/c/f/r</kbd> to jump views · <kbd>space</kbd> start/pause timer.</p>
       <button class="btn primary" id="installBtn" ${deferredPrompt ? '' : 'disabled'}>Install app</button>
     </div>`;
