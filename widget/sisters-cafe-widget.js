@@ -27,7 +27,6 @@
 const APP_URL = "https://aditisankara.github.io/sisters-study-cafe/";
 const KEYCHAIN_KEY = "cafe-sync-passphrase";
 const CACHE_FILE = "sisters-cafe-widget-cache.json";
-const FBCONF_CACHE = "sisters-cafe-fbconf.json";
 
 const THEMES = {
   cafe:     { light: { bg: "#f5ece1", fg: "#3a2c20", sub: "#7a6552", accent: "#c98a5b" }, dark: { bg: "#1e1813", fg: "#f3e8d9", sub: "#bda98f", accent: "#d99a68" } },
@@ -62,37 +61,69 @@ const CRYPTO_LIB = `
 
 function _delay(ms) { return new Promise((res) => { Timer.schedule(ms, false, res); }); }
 
-/* Runs an async crypto expression in a WebView (for crypto.subtle) and reads
-   the result back by polling a global — avoids every evaluateJavaScript
-   return-type quirk (the "unsupported type" error). */
-async function evalCrypto(expr) {
+/* Does the whole Firebase round-trip *inside* a WebView whose document origin is
+   the app's own domain. That gives us:
+     - crypto.subtle (https ⇒ secure context)
+     - the right Referer/Origin automatically, so the domain-restricted API key
+       is accepted (Scriptable's Request can't set Referer, hence this)
+     - same-origin fetch of firebase-config.js
+   Result is read back by polling a global to dodge evaluateJavaScript quirks. */
+async function fetchAndDecrypt(pass) {
   const wv = new WebView();
-  await wv.loadHTML("<html><body></body></html>", "https://localhost"); // https ⇒ secure context
+  await wv.loadHTML("<html><body></body></html>", APP_URL);
   const kick = `
     ${CRYPTO_LIB}
     window.__cw = { done: false, out: null };
     (async () => {
       try {
-        if (!(self.crypto && self.crypto.subtle)) { window.__cw.out = "__ERR__:WebCrypto unavailable"; }
-        else {
-          var r = await (${expr});
-          window.__cw.out = (typeof r === "string" && r.length) ? r : ("__ERR__:bad result " + typeof r);
-        }
-      } catch (e) { window.__cw.out = "__ERR__:" + String((e && e.message) || e); }
+        if (!(self.crypto && self.crypto.subtle)) throw new Error("WebCrypto unavailable");
+        const pass = ${JSON.stringify(pass)};
+
+        const confRes = await fetch("firebase-config.js", { cache: "no-store" });
+        const confTxt = await confRes.text();
+        const m = confTxt.match(/CAFE_FIREBASE_CONFIG\\s*=\\s*(\\{[\\s\\S]*?\\})\\s*;/);
+        if (!m) throw new Error("no firebase config on site");
+        const fb = JSON.parse(m[1]);
+
+        const docId = await _docId(pass);
+
+        const authRes = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=" + fb.apiKey, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ returnSecureToken: true })
+        });
+        const auth = await authRes.json();
+        if (!auth.idToken) throw new Error("signin: " + ((auth.error && auth.error.message) || authRes.status));
+
+        const docRes = await fetch(
+          "https://firestore.googleapis.com/v1/projects/" + fb.projectId + "/databases/(default)/documents/households/" + docId,
+          { headers: { Authorization: "Bearer " + auth.idToken } });
+        if (docRes.status === 404) throw new Error("no synced data yet — enable Cloud sync in the app first");
+        if (!docRes.ok) throw new Error("firestore " + docRes.status);
+        const doc = await docRes.json();
+        const blob = doc.fields && doc.fields.blob && doc.fields.blob.stringValue;
+        if (!blob) throw new Error("empty sync document");
+
+        const plain = await _decrypt(pass, blob);
+        window.__cw.out = "OK:" + plain;
+      } catch (e) {
+        window.__cw.out = "__ERR__:" + String((e && e.message) || e);
+      }
       window.__cw.done = true;
     })();
     true;
   `;
   await wv.evaluateJavaScript(kick);
   let out = null;
-  for (let i = 0; i < 120; i++) {
-    const done = await wv.evaluateJavaScript("!!(window.__cw && window.__cw.done)");
-    if (done) { out = await wv.evaluateJavaScript("window.__cw.out"); break; }
+  for (let i = 0; i < 300; i++) {
+    if (await wv.evaluateJavaScript("!!(window.__cw && window.__cw.done)")) {
+      out = await wv.evaluateJavaScript("window.__cw.out");
+      break;
+    }
     await _delay(100);
   }
-  if (typeof out !== "string") throw new Error("crypto timed out / bad bridge");
+  if (typeof out !== "string") throw new Error("widget timed out");
   if (out.indexOf("__ERR__:") === 0) throw new Error(out.slice(8));
-  return out;
+  if (out.indexOf("OK:") === 0) return JSON.parse(out.slice(3));
+  throw new Error("unexpected result from bridge");
 }
 
 /* ---------------- passphrase ---------------- */
@@ -114,55 +145,6 @@ async function promptPassphrase() {
   return null;
 }
 
-/* ---------------- firebase config (fetched from the deployed site) ---------------- */
-async function loadFirebaseConfig() {
-  const fm = FileManager.local();
-  const cp = fm.joinPath(fm.temporaryDirectory(), FBCONF_CACHE);
-  try {
-    const req = new Request(APP_URL + "firebase-config.js");
-    req.timeoutInterval = 15;
-    const text = await req.loadString();
-    const m = text.match(/CAFE_FIREBASE_CONFIG\s*=\s*(\{[\s\S]*?\})\s*;/);
-    if (!m) throw new Error("no config in firebase-config.js");
-    const conf = JSON.parse(m[1]);
-    if (!conf || !conf.apiKey) throw new Error("firebase-config.js has no apiKey");
-    fm.writeString(cp, JSON.stringify(conf));
-    return conf;
-  } catch (e) {
-    if (fm.fileExists(cp)) return JSON.parse(fm.readString(cp));
-    throw new Error("could not load Firebase config (" + (e.message || e) + ")");
-  }
-}
-
-/* The API key is HTTP-referrer restricted to the app's domain. Scriptable sends
-   no Referer, which Google blocks — so we send the allowed one explicitly. */
-const REFERER = "https://aditisankara.github.io/sisters-study-cafe/";
-
-/* ---------------- data ---------------- */
-async function fetchDB(pass) {
-  const fb = await loadFirebaseConfig();
-  const docId = await evalCrypto(`_docId(${JSON.stringify(pass)})`);
-
-  const authReq = new Request(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${fb.apiKey}`);
-  authReq.method = "POST";
-  authReq.headers = { "Content-Type": "application/json", "Referer": REFERER, "Origin": "https://aditisankara.github.io" };
-  authReq.body = JSON.stringify({ returnSecureToken: true });
-  const auth = await authReq.loadJSON();
-  if (!auth || !auth.idToken) throw new Error("sign-in failed (" + ((auth && auth.error && auth.error.message) || "?") + ")");
-
-  const url = `https://firestore.googleapis.com/v1/projects/${fb.projectId}/databases/(default)/documents/households/${docId}`;
-  const docReq = new Request(url);
-  docReq.headers = { Authorization: "Bearer " + auth.idToken, "Referer": REFERER, "Origin": "https://aditisankara.github.io" };
-  const doc = await docReq.loadJSON();
-  const status = docReq.response.statusCode;
-  if (status === 404) throw new Error("no synced data yet — enable Cloud sync in the app first");
-  if (status !== 200) throw new Error("firestore " + status);
-  const blob = doc && doc.fields && doc.fields.blob && doc.fields.blob.stringValue;
-  if (!blob) throw new Error("empty sync document");
-
-  const plain = await evalCrypto(`_decrypt(${JSON.stringify(pass)}, ${JSON.stringify(blob)})`);
-  return JSON.parse(plain);
-}
 
 function todayStr() {
   const d = new Date();
@@ -352,7 +334,7 @@ async function main() {
   const profileParam = (args.widgetParameter || "").trim() || null;
   let widget;
   try {
-    const db = await fetchDB(pass);
+    const db = await fetchAndDecrypt(pass);
     const s = summarize(db, profileParam);
     writeCache(s);
     widget = buildWidget(s, false);
