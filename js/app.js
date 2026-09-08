@@ -1373,11 +1373,12 @@ const SYNC = (() => {
   }
   function persist() { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
 
-  /* Config precedence: what the user typed in > the value baked into the
-     deployment (firebase-config.js). If a build ships a config, the user
-     only ever enters a passphrase. */
+  /* Config precedence: a config baked into the deployment (firebase-config.js)
+     is the source of truth and WINS over anything a user pasted earlier — that
+     way rotating the key in the deploy secret fixes every device automatically.
+     A pasted config is only used when the build ships none. */
   const bakedConfig = () => (window.CAFE_FIREBASE_CONFIG && window.CAFE_FIREBASE_CONFIG.apiKey) ? window.CAFE_FIREBASE_CONFIG : null;
-  const activeConfig = () => cfg.firebaseConfig || bakedConfig();
+  const activeConfig = () => bakedConfig() || cfg.firebaseConfig;
 
   /* Accept both strict JSON and the JS-object form Firebase's console shows
      (unquoted keys, trailing commas, optional `const firebaseConfig =` wrapper). */
@@ -1448,6 +1449,8 @@ const SYNC = (() => {
   }
 
   async function connect(opts = {}) {
+    // if the deployment ships a config, drop any stale pasted one
+    if (bakedConfig() && cfg.firebaseConfig) { cfg.firebaseConfig = null; persist(); }
     const fbConf = activeConfig();
     if (!cfg.enabled || !fbConf || !cfg.passphrase) return;
     setStatus('connecting');
