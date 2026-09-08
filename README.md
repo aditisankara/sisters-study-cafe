@@ -11,7 +11,8 @@ with **optional** end-to-end-encrypted cloud sync via your own free Firebase pro
 - **Multiple profiles**, each with its own data, one of 4 aesthetic themes (Café, Matcha, Midnight, Sakura), and an independent **light / dark** mode — 8 looks total. Toggle with the 🌙 button in the header or in Settings.
 - **Task dump** — brain-dump tasks fast, triage later. Drag them into the planner.
 - **Daily & weekly planner** — 7-day columns, drag-and-drop scheduling, inline editing.
-- **Calendar** — month view with deadlines / exams / events. Link tasks to events (auto-sets due dates).
+- **Calendar** — month view with deadlines / exams / events. Link tasks to events (auto-sets due dates), and tag events to a course.
+- **Coursework** — a page per course: key notes about the class, a ranked list of tricky topics with a confidence level (shaky → getting there → solid) and a "revise" flag, resources, and that course's deadlines/exams. Flagged topics surface in Reminders.
 - **Focus timer** — Pomodoro-style, default 45 min (fully editable), break phases, progress ring, alarm, session log, daily goal.
 - **Reminders** — everything due in the next 7 days (and the rest of the month), with optional browser notifications and a morning digest.
 - **Calendar sync** — export `.ics` and import into Google Calendar / Apple Calendar for native phone + laptop alerts (free).

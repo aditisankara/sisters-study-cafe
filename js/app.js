@@ -51,7 +51,16 @@ const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
 /* ---------------- storage ---------------- */
 function freshProfileData() {
-  return { tasks: [], events: [], sessions: [], achievements: {}, dailyGoalMin: 120 };
+  return { tasks: [], events: [], sessions: [], courses: [], achievements: {}, dailyGoalMin: 120 };
+}
+/* fill in keys added after a profile was first created */
+function ensureShape(d) {
+  if (!d) return d;
+  d.tasks = d.tasks || []; d.events = d.events || []; d.sessions = d.sessions || [];
+  d.courses = d.courses || []; d.achievements = d.achievements || {};
+  if (!d.dailyGoalMin) d.dailyGoalMin = 120;
+  d.events.forEach((e) => { if (!('linkedTaskIds' in e)) e.linkedTaskIds = []; });
+  return d;
 }
 function loadDB() {
   try {
@@ -188,7 +197,7 @@ function selectProfile(id) {
 /* ============================================================
    ROUTER
    ============================================================ */
-const VIEWS = ['dashboard', 'dump', 'planner', 'calendar', 'focus', 'reminders', 'stats', 'settings'];
+const VIEWS = ['dashboard', 'dump', 'planner', 'calendar', 'coursework', 'focus', 'reminders', 'stats', 'settings'];
 function currentView() {
   const h = location.hash.replace('#', '');
   return VIEWS.includes(h) ? h : 'dashboard';
@@ -201,6 +210,7 @@ window.addEventListener('hashchange', () => {
 function bootApp() {
   $('#gate').hidden = true; $('#widget').hidden = true; $('#app').hidden = false;
   const p = profile();
+  ensureShape(pdata());
   if (!p.mode) p.mode = p.theme === 'midnight' ? 'dark' : 'light';
   applyTheme(p.theme, p.mode);
   $('#profileAvatar').textContent = p.avatar || '🙂';
@@ -239,7 +249,8 @@ function renderView(view) {
   const c = $('#content');
   c.innerHTML = '';
   ({ dashboard: viewDashboard, dump: viewDump, planner: viewPlanner, calendar: viewCalendar,
-     focus: viewFocus, reminders: viewReminders, stats: viewStats, settings: viewSettings }[view])(c);
+     coursework: viewCoursework, focus: viewFocus, reminders: viewReminders,
+     stats: viewStats, settings: viewSettings }[view])(c);
   updateTopbar();
 }
 
@@ -348,6 +359,7 @@ function renderOnboarding(box) {
     { key: 'task', label: 'Add your first task', done: d.tasks.length > 0, action: () => (location.hash = 'dump') },
     { key: 'plan', label: 'Schedule something in the planner', done: d.tasks.some((t) => t.scheduledFor), action: () => (location.hash = 'planner') },
     { key: 'event', label: 'Add a deadline or exam to the calendar', done: d.events.length > 0, action: () => (location.hash = 'calendar') },
+    { key: 'course', label: 'Set up a course in Coursework', done: (d.courses || []).length > 0, action: () => (location.hash = 'coursework') },
     { key: 'focus', label: 'Finish one focus session', done: d.sessions.some((s) => s.type === 'focus' && s.completed), action: () => (location.hash = 'focus') },
     { key: 'sync', label: 'Set up cross-device sync', optional: true, done: SYNC.enabled, action: () => (location.hash = 'settings') },
   ];
@@ -527,17 +539,18 @@ function eventRow(e) {
   const el = document.createElement('div');
   el.className = 'task prio-' + (e.type === 'deadline' ? 'high' : e.type === 'exam' ? 'med' : 'low');
   const linked = (e.linkedTaskIds || []).map((id) => d.tasks.find((t) => t.id === id)).filter(Boolean);
+  const co = e.courseId ? course(e.courseId) : null;
   el.innerHTML = `<div class="body">
     <div class="title">${({ deadline: '⏰', exam: '📝', event: '📌' })[e.type]} ${esc(e.title)}</div>
     <div class="meta"><span>${prettyDate(e.date)}${e.time ? ' · ' + e.time : ''}</span>
-      <span>${e.type}</span>${linked.length ? `<span>🔗 ${linked.length} task(s)</span>` : ''}</div>
+      <span>${e.type}</span>${co ? `<span>📚 ${esc(co.code || co.name)}</span>` : ''}${linked.length ? `<span>🔗 ${linked.length} task(s)</span>` : ''}</div>
     ${e.notes ? `<div class="meta">${esc(e.notes)}</div>` : ''}
   </div>
   <button class="icon-btn" title="Edit">✏️</button>
   <button class="icon-btn" title="Delete">🗑️</button>`;
   el.querySelector('[title="Edit"]').onclick = () => openEventModal(e);
   el.querySelector('[title="Delete"]').onclick = () => {
-    if (confirm('Delete this event?')) { d.events = d.events.filter((x) => x.id !== e.id); saveDB(); renderView('calendar'); }
+    if (confirm('Delete this event?')) { d.events = d.events.filter((x) => x.id !== e.id); saveDB(); renderView(currentView()); }
   };
   return el;
 }
@@ -545,7 +558,7 @@ function eventRow(e) {
 function openEventModal(ev) {
   const d = pdata();
   const editing = !!ev.id;
-  const e = editing ? ev : { id: uid(), title: '', type: 'deadline', date: ev.date || todayISO(), time: '', notes: '', linkedTaskIds: [] };
+  const e = editing ? ev : { id: uid(), title: '', type: 'deadline', date: ev.date || todayISO(), time: '', notes: '', courseId: ev.courseId || null, linkedTaskIds: [] };
   const openTasks = d.tasks.filter((t) => t.status !== 'done');
   const modal = mkModal(`
     <h3>${editing ? 'Edit' : 'New'} event</h3>
@@ -558,6 +571,10 @@ function openEventModal(ev) {
       <label class="field" style="flex:1"><span>Time</span><input id="evTime" type="time" value="${e.time || ''}"></label>
     </div>
     <label class="field"><span>Notes</span><textarea id="evNotes">${esc(e.notes)}</textarea></label>
+    ${(d.courses || []).length ? `<label class="field"><span>Course</span><select id="evCourse">
+        <option value="">— none —</option>
+        ${d.courses.filter((co) => !co.archived).map((co) => `<option value="${co.id}" ${e.courseId === co.id ? 'selected' : ''}>${esc(co.code ? co.code + ' · ' : '')}${esc(co.name)}</option>`).join('')}
+      </select></label>` : ''}
     <label class="field"><span>Link tasks to this event</span>
       <select id="evLinks" multiple size="${Math.min(5, Math.max(2, openTasks.length))}">
         ${openTasks.map((t) => `<option value="${t.id}" ${e.linkedTaskIds?.includes(t.id) ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}
@@ -572,17 +589,266 @@ function openEventModal(ev) {
     e.title = $('#evTitle').value.trim() || 'Untitled';
     e.type = $('#evType').value; e.date = $('#evDate').value || todayISO();
     e.time = $('#evTime').value; e.notes = $('#evNotes').value.trim();
+    if ($('#evCourse')) e.courseId = $('#evCourse').value || null;
     e.linkedTaskIds = [...$('#evLinks').selectedOptions].map((o) => o.value);
     // set due date on linked tasks
     e.linkedTaskIds.forEach((id) => { const t = d.tasks.find((x) => x.id === id); if (t && !t.due) t.due = e.date; });
     if (!editing) d.events.push(e);
-    saveDB(); modal.close(); renderView('calendar');
+    saveDB(); modal.close(); renderView(currentView());
     toast(editing ? 'Event updated' : 'Event added');
   };
   $('#evCancel').onclick = () => modal.close();
   if (editing) $('#evDel').onclick = () => {
-    if (confirm('Delete this event?')) { d.events = d.events.filter((x) => x.id !== e.id); saveDB(); modal.close(); renderView('calendar'); }
+    if (confirm('Delete this event?')) { d.events = d.events.filter((x) => x.id !== e.id); saveDB(); modal.close(); renderView(currentView()); }
   };
+}
+
+/* ---------------- COURSEWORK ---------------- */
+const COURSE_COLORS = ['#c98a5b', '#7fa25a', '#9b8cff', '#e28fae', '#5aa9b8', '#d9a441', '#c25b7a', '#6d8fd1'];
+const CONF = {
+  shaky: { label: 'Shaky', dot: '🔴', var: 'var(--bad)', next: 'ok' },
+  ok:    { label: 'Getting there', dot: '🟡', var: 'var(--warn)', next: 'solid' },
+  solid: { label: 'Solid', dot: '🟢', var: 'var(--good)', next: 'shaky' },
+};
+let courseCursor = null;      // course id, or null for the list
+let courseReviseOnly = false;
+
+const course = (id) => (pdata().courses || []).find((c) => c.id === id) || null;
+function courseStats(co) {
+  const t = co.topics || [];
+  return { total: t.length, revise: t.filter((x) => x.revise || x.confidence === 'shaky').length };
+}
+
+function viewCoursework(c) {
+  const co = courseCursor && course(courseCursor);
+  if (co) renderCourseDetail(c, co);
+  else renderCourseList(c);
+}
+
+function renderCourseList(c) {
+  const d = pdata();
+  const active = d.courses.filter((x) => !x.archived);
+  const archived = d.courses.filter((x) => x.archived);
+  c.innerHTML = `
+    <div class="section-title"><h2>📚 Coursework</h2>
+      <button class="btn primary small" id="newCourse">+ New course</button></div>
+    <div class="grid cols-3" id="courseGrid"></div>
+    ${active.length ? '' : '<div class="card"><p class="muted">No courses yet. Add one for each class — then stash the tricky topics, key notes, and resources inside.</p></div>'}
+    ${archived.length ? `<h3 style="margin:22px 0 10px" class="muted">Archived</h3><div class="grid cols-3" id="archGrid"></div>` : ''}`;
+
+  const grid = $('#courseGrid');
+  active.forEach((co) => grid.appendChild(courseCard(co)));
+  if (archived.length) archived.forEach((co) => $('#archGrid').appendChild(courseCard(co)));
+  $('#newCourse').onclick = () => openCourseModal(null);
+}
+
+function courseCard(co) {
+  const s = courseStats(co);
+  const el = document.createElement('button');
+  el.className = 'card course-card';
+  el.style.setProperty('--course', co.color || COURSE_COLORS[0]);
+  el.innerHTML = `
+    <span class="course-bar"></span>
+    <div class="course-head">
+      <span class="course-dot"></span>
+      <div style="min-width:0">
+        <div class="course-name">${esc(co.name)}</div>
+        ${co.code ? `<div class="muted" style="font-size:12px">${esc(co.code)}${co.instructor ? ' · ' + esc(co.instructor) : ''}</div>` : (co.instructor ? `<div class="muted" style="font-size:12px">${esc(co.instructor)}</div>` : '')}
+      </div>
+    </div>
+    <div class="course-meta">
+      <span>${s.total} topic${s.total === 1 ? '' : 's'}</span>
+      ${s.revise ? `<span class="due-soon">★ ${s.revise} to revise</span>` : '<span class="muted">all solid</span>'}
+    </div>`;
+  el.onclick = () => { courseCursor = co.id; courseReviseOnly = false; renderView('coursework'); };
+  return el;
+}
+
+function openCourseModal(id) {
+  const d = pdata();
+  const editing = !!id;
+  const co = editing ? course(id) : { id: uid(), name: '', code: '', color: COURSE_COLORS[d.courses.length % COURSE_COLORS.length], instructor: '', meeting: '', overview: '', topics: [], resources: [], createdAt: new Date().toISOString(), archived: false };
+  const modal = mkModal(`
+    <h3>${editing ? 'Edit' : 'New'} course</h3>
+    <label class="field"><span>Course name</span><input id="coName" value="${esc(co.name)}" placeholder="e.g. Organic Chemistry"></label>
+    <div class="row">
+      <label class="field" style="flex:1"><span>Code (optional)</span><input id="coCode" value="${esc(co.code)}" placeholder="CHEM 210"></label>
+      <label class="field" style="flex:1"><span>Instructor (optional)</span><input id="coInstr" value="${esc(co.instructor)}" placeholder="Dr. Rao"></label>
+    </div>
+    <label class="field"><span>When / where (optional)</span><input id="coMeeting" value="${esc(co.meeting || '')}" placeholder="Mon/Wed 10:00 · Room 214"></label>
+    <label class="field"><span>Colour</span><div class="theme-swatches" id="coColors"></div></label>
+    <div class="row" style="justify-content:flex-end;margin-top:8px">
+      ${editing ? `<button class="btn danger" id="coDel">Delete</button>` : ''}
+      <button class="btn" id="coCancel">Cancel</button>
+      <button class="btn primary" id="coSave">Save</button>
+    </div>`);
+  let pick = co.color;
+  const sw = $('#coColors');
+  COURSE_COLORS.forEach((col) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'swatch'; b.style.background = col; b.dataset.col = col;
+    b.setAttribute('aria-pressed', String(col === pick));
+    b.onclick = () => { pick = col; sw.querySelectorAll('.swatch').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.col === col))); };
+    sw.appendChild(b);
+  });
+  $('#coSave').onclick = () => {
+    co.name = $('#coName').value.trim();
+    if (!co.name) return toast('Give the course a name');
+    co.code = $('#coCode').value.trim();
+    co.instructor = $('#coInstr').value.trim();
+    co.meeting = $('#coMeeting').value.trim();
+    co.color = pick;
+    if (!editing) d.courses.push(co);
+    saveDB(); modal.close();
+    if (!editing) courseCursor = co.id;
+    renderView('coursework');
+    toast(editing ? 'Course updated' : 'Course added');
+  };
+  $('#coCancel').onclick = () => modal.close();
+  if (editing) $('#coDel').onclick = () => {
+    if (!confirm(`Delete "${co.name}" and all its topics & notes?`)) return;
+    d.courses = d.courses.filter((x) => x.id !== co.id);
+    d.events.forEach((e) => { if (e.courseId === co.id) e.courseId = null; });
+    saveDB(); modal.close(); courseCursor = null; renderView('coursework');
+  };
+}
+
+function renderCourseDetail(c, co) {
+  const d = pdata();
+  co.topics = co.topics || []; co.resources = co.resources || [];
+  const topics = co.topics.slice().sort((a, b) => {
+    const rank = (x) => (x.revise ? 0 : 2) + (x.confidence === 'shaky' ? 0 : x.confidence === 'ok' ? 1 : 2);
+    return rank(a) - rank(b) || (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
+  const shown = courseReviseOnly ? topics.filter((t) => t.revise || t.confidence === 'shaky') : topics;
+  const events = d.events.filter((e) => e.courseId === co.id)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const s = courseStats(co);
+
+  c.innerHTML = `
+    <div class="section-title">
+      <div class="row" style="gap:10px;min-width:0">
+        <button class="icon-btn" id="coBack" title="All courses">←</button>
+        <span class="course-dot" style="--course:${co.color || COURSE_COLORS[0]}"></span>
+        <h2 style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(co.code ? co.code + ' · ' : '')}${esc(co.name)}</h2>
+      </div>
+      <div class="row" style="gap:6px">
+        <button class="btn small" id="coEdit">Edit</button>
+        <button class="btn small ghost" id="coArchive">${co.archived ? 'Unarchive' : 'Archive'}</button>
+      </div>
+    </div>
+    ${(co.instructor || co.meeting) ? `<p class="muted" style="margin:-6px 0 16px;font-size:13px">${esc([co.instructor, co.meeting].filter(Boolean).join('  ·  '))}</p>` : ''}
+
+    <div class="card" style="margin-bottom:16px">
+      <h3>Key things about this course</h3>
+      <textarea id="coOverview" style="min-height:120px" placeholder="Grading breakdown, what the exams are like, office hours, recurring gotchas, formulas you always forget…">${esc(co.overview || '')}</textarea>
+      <p class="muted" style="font-size:11px;margin:6px 0 0">Saves automatically.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:12px">
+        <h3>Topics to revise <span class="pill">${s.revise}★ / ${s.total}</span></h3>
+        <label class="row" style="gap:6px;font-size:12.5px;font-weight:500"><input type="checkbox" id="coReviseOnly" style="width:auto" ${courseReviseOnly ? 'checked' : ''}> needs-revision only</label>
+      </div>
+      <form id="coAddTopic" class="row" style="margin-bottom:12px">
+        <input id="coTopicTitle" placeholder="A topic you find hard — e.g. “Stereochemistry: R/S assignment”" style="flex:1;min-width:200px" required>
+        <button class="btn primary" type="submit">Add</button>
+      </form>
+      <div id="coTopicList"></div>
+      ${shown.length ? '' : `<p class="muted">${courseReviseOnly ? 'Nothing flagged for revision right now 🎉' : 'No topics yet. Add the ones that trip you up.'}</p>`}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3>Resources</h3>
+      <form id="coAddRes" class="row" style="margin:8px 0 12px">
+        <input id="coResLabel" placeholder="Label — “Textbook”, “Lecture slides”, “Khan Academy playlist”" style="flex:2;min-width:180px" required>
+        <input id="coResDetail" placeholder="link or note" style="flex:1;min-width:120px">
+        <button class="btn" type="submit">Add</button>
+      </form>
+      <div id="coResList"></div>
+      ${co.resources.length ? '' : '<p class="muted">Somewhere to keep the textbook, links, and where the good notes live.</p>'}
+    </div>
+
+    <div class="card">
+      <h3>Deadlines &amp; exams</h3>
+      <div id="coEvents"></div>
+      ${events.length ? '' : `<p class="muted">Link a calendar event to this course (in the event editor) and it shows up here.</p>`}
+      <button class="btn small" id="coAddEvent" style="margin-top:10px">+ Add one</button>
+    </div>`;
+
+  $('#coBack').onclick = () => { courseCursor = null; renderView('coursework'); };
+  $('#coEdit').onclick = () => openCourseModal(co.id);
+  $('#coArchive').onclick = () => { co.archived = !co.archived; saveDB(); courseCursor = co.archived ? null : co.id; renderView('coursework'); toast(co.archived ? 'Archived' : 'Unarchived'); };
+
+  const ov = $('#coOverview');
+  ov.addEventListener('blur', () => { if ((co.overview || '') !== ov.value) { co.overview = ov.value; saveDB(); } });
+
+  $('#coReviseOnly').onchange = (e) => { courseReviseOnly = e.target.checked; renderView('coursework'); };
+
+  $('#coAddTopic').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const title = $('#coTopicTitle').value.trim();
+    if (!title) return;
+    co.topics.push({ id: uid(), title, note: '', confidence: 'shaky', revise: true, createdAt: new Date().toISOString() });
+    saveDB(); renderView('coursework');
+  });
+
+  const tl = $('#coTopicList');
+  shown.forEach((t) => tl.appendChild(topicEl(co, t)));
+
+  const rl = $('#coResList');
+  co.resources.forEach((r) => rl.appendChild(resourceEl(co, r)));
+  $('#coAddRes').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const label = $('#coResLabel').value.trim();
+    if (!label) return;
+    co.resources.push({ id: uid(), label, detail: $('#coResDetail').value.trim() });
+    saveDB(); renderView('coursework');
+  });
+
+  const evl = $('#coEvents');
+  events.forEach((e) => evl.appendChild(eventRow(e)));
+  $('#coAddEvent').onclick = () => openEventModal({ date: todayISO(), courseId: co.id });
+}
+
+function topicEl(co, t) {
+  const el = document.createElement('div');
+  const conf = CONF[t.confidence] || CONF.shaky;
+  el.className = 'task topic';
+  el.innerHTML = `
+    <button class="chip conf" title="Confidence — click to change" style="--c:${conf.var}">${conf.dot} ${conf.label}</button>
+    <div class="body">
+      <div class="title" contenteditable="plaintext-only">${esc(t.title)}</div>
+      <div class="topic-note" contenteditable="plaintext-only" data-ph="Add a note — why it's tricky, the trick to remember it, page refs…">${esc(t.note || '')}</div>
+    </div>
+    <button class="icon-btn star ${t.revise ? 'on' : ''}" title="Flag for revision">${t.revise ? '★' : '☆'}</button>
+    <button class="icon-btn" title="Delete">🗑️</button>`;
+
+  el.querySelector('.conf').onclick = () => { t.confidence = (CONF[t.confidence] || CONF.shaky).next; saveDB(); renderView('coursework'); };
+  el.querySelector('.star').onclick = () => { t.revise = !t.revise; saveDB(); renderView('coursework'); };
+  el.querySelector('[title="Delete"]').onclick = () => {
+    if (confirm('Delete this topic?')) { co.topics = co.topics.filter((x) => x.id !== t.id); saveDB(); renderView('coursework'); }
+  };
+  const title = el.querySelector('.title');
+  title.addEventListener('blur', () => { const v = title.textContent.trim(); if (v && v !== t.title) { t.title = v; saveDB(); } else title.textContent = t.title; });
+  title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); title.blur(); } });
+  const note = el.querySelector('.topic-note');
+  note.addEventListener('blur', () => { if ((t.note || '') !== note.textContent) { t.note = note.textContent.trim(); saveDB(); } });
+  return el;
+}
+
+function resourceEl(co, r) {
+  const el = document.createElement('div');
+  el.className = 'task';
+  const isUrl = /^https?:\/\//i.test(r.detail || '');
+  el.innerHTML = `
+    <div class="body">
+      <div class="title">${esc(r.label)}</div>
+      ${r.detail ? `<div class="meta">${isUrl ? `<a href="${esc(r.detail)}" target="_blank" rel="noopener">${esc(r.detail)}</a>` : esc(r.detail)}</div>` : ''}
+    </div>
+    <button class="icon-btn" title="Delete">🗑️</button>`;
+  el.querySelector('[title="Delete"]').onclick = () => { co.resources = co.resources.filter((x) => x.id !== r.id); saveDB(); renderView('coursework'); };
+  return el;
 }
 
 /* ---------------- FOCUS TIMER ---------------- */
@@ -772,8 +1038,13 @@ function reminderEl(r) {
 
 function viewReminders(c) {
   const p = profile();
+  const d = pdata();
   const list7 = upcoming(7);
   const list30 = upcoming(30).filter((r) => daysUntil(r.date) > 7);
+  const revise = [];
+  (d.courses || []).filter((co) => !co.archived).forEach((co) => (co.topics || []).forEach((t) => {
+    if (t.revise || t.confidence === 'shaky') revise.push({ co, t });
+  }));
   c.innerHTML = `
     <div class="section-title"><h2>🔔 Reminders</h2>
       <label class="row" style="gap:6px;font-size:13px"><input type="checkbox" id="notifToggle" style="width:auto" ${p.notifOptIn ? 'checked' : ''}> notifications</label></div>
@@ -781,6 +1052,11 @@ function viewReminders(c) {
       <h3>Next 7 days</h3><div id="rem7"></div>
       ${list7.length ? '' : '<p class="muted">Nothing coming up. Breathe 🌿</p>'}
     </div>
+    ${revise.length ? `<div class="card" style="margin-top:14px">
+      <div class="section-title"><h3>📚 Topics to revise <span class="pill">${revise.length}</span></h3>
+        <button class="btn small ghost" id="toCourses">Coursework →</button></div>
+      <div id="remRevise"></div>
+    </div>` : ''}
     <div class="card" style="margin-top:14px">
       <div class="section-title"><h3>Later this month</h3><button class="btn small" id="icsBtn2">⬇︎ Sync to calendar (.ics)</button></div>
       <div id="rem30"></div>
@@ -791,6 +1067,21 @@ function viewReminders(c) {
 
   list7.forEach((r) => $('#rem7').appendChild(reminderEl(r)));
   list30.forEach((r) => $('#rem30').appendChild(reminderEl(r)));
+  if (revise.length) {
+    const rr = $('#remRevise');
+    revise.slice(0, 12).forEach(({ co, t }) => {
+      const conf = CONF[t.confidence] || CONF.shaky;
+      const row = document.createElement('div');
+      row.className = 'task';
+      row.style.cursor = 'pointer';
+      row.innerHTML = `<span class="course-dot" style="--course:${co.color || COURSE_COLORS[0]};margin-top:3px"></span>
+        <div class="body"><div class="title">${esc(t.title)}</div>
+        <div class="meta"><span>${esc(co.code || co.name)}</span><span>${conf.dot} ${conf.label}</span>${t.revise ? '<span class="due-soon">★ flagged</span>' : ''}</div></div>`;
+      row.onclick = () => { courseCursor = co.id; courseReviseOnly = true; location.hash = 'coursework'; };
+      rr.appendChild(row);
+    });
+    $('#toCourses').onclick = () => (location.hash = 'coursework');
+  }
   $('#icsBtn2').onclick = exportICS;
   $('#notifToggle').onchange = async (e) => {
     if (e.target.checked) {
@@ -1326,7 +1617,7 @@ document.addEventListener('keydown', (e) => {
   if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
   if (e.key === 'g') { gPressed = true; setTimeout(() => (gPressed = false), 800); return; }
   if (gPressed) {
-    const map = { d: 'dashboard', p: 'planner', c: 'calendar', f: 'focus', r: 'reminders', s: 'stats', t: 'dump' };
+    const map = { d: 'dashboard', p: 'planner', c: 'calendar', k: 'coursework', f: 'focus', r: 'reminders', s: 'stats', t: 'dump' };
     if (map[e.key]) { location.hash = map[e.key]; gPressed = false; }
     return;
   }
