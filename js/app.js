@@ -261,7 +261,8 @@ function viewDashboard(c) {
   const greet = hr < 5 ? 'Still up' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
   const today = todayISO();
   const d = pdata();
-  const todayTasks = d.tasks.filter((t) => t.scheduledFor === today && t.status !== 'done');
+  const todayTasks = d.tasks.filter((t) => t.scheduledFor && t.scheduledFor <= today && t.status !== 'done')
+    .sort((a, b) => (a.scheduledFor || '').localeCompare(b.scheduledFor || ''));
   const doneToday = d.tasks.filter((t) => t.status === 'done' && (t.completedAt || '').slice(0, 10) === today).length;
   const focusToday = d.sessions.filter((s) => s.type === 'focus' && s.completed && (s.endedAt || '').slice(0, 10) === today)
     .reduce((a, s) => a + s.minutes, 0);
@@ -406,9 +407,14 @@ function bigNote(title, body) {
 function viewDump(c) {
   const d = pdata();
   const dump = d.tasks.filter((t) => !t.scheduledFor && t.status !== 'done').sort(byOrder);
+  const overdue = d.tasks.filter((t) => t.scheduledFor && t.scheduledFor < todayISO() && t.status !== 'done').length;
   c.innerHTML = `
     <div class="section-title"><h2>🧠 Task Dump</h2>
       <span class="pill">${dump.length} unscheduled</span></div>
+    ${overdue ? `<div class="card" style="margin-bottom:14px;box-shadow:inset 3px 0 0 var(--warn), var(--shadow-sm)">
+      <div class="row"><span>⚠️ <b>${overdue}</b> overdue task${overdue === 1 ? '' : 's'} from earlier days.</span>
+        <span class="spacer"></span><button class="btn small" id="dumpToPlanner">Review in Planner →</button></div>
+    </div>` : ''}
     <div class="card">
       <form id="dumpAdd" class="row" style="margin-bottom:14px">
         <input id="dumpTitle" placeholder="Get it out of your head…" style="flex:1;min-width:180px" required />
@@ -424,6 +430,7 @@ function viewDump(c) {
   const list = $('#dumpList');
   dump.forEach((t) => list.appendChild(taskEl(t, { schedulable: true })));
   makeSortable(list, dump);
+  if ($('#dumpToPlanner')) $('#dumpToPlanner').onclick = () => (location.hash = 'planner');
 
   $('#dumpAdd').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -436,13 +443,27 @@ function viewDump(c) {
 /* ---------------- PLANNER ---------------- */
 function viewPlanner(c) {
   const d = pdata();
+  const today = todayISO();
   const start = new Date();
   const days = Array.from({ length: 7 }, (_, i) => toISO(addDays(start, i)));
   const dump = d.tasks.filter((t) => !t.scheduledFor && t.status !== 'done').sort(byOrder);
+  const overdue = d.tasks.filter((t) => t.scheduledFor && t.scheduledFor < today && t.status !== 'done')
+    .sort((a, b) => (a.scheduledFor || '').localeCompare(b.scheduledFor || '') || byOrder(a, b));
 
   c.innerHTML = `
     <div class="section-title"><h2>🗓️ Planner</h2>
       <span class="pill">Daily &amp; weekly</span></div>
+    ${overdue.length ? `<div class="card" style="margin-bottom:16px;box-shadow:inset 3px 0 0 var(--warn), var(--shadow-sm)">
+      <div class="section-title" style="margin-bottom:10px">
+        <h3>⚠️ Overdue <span class="pill">${overdue.length}</span></h3>
+        <div class="row" style="gap:6px">
+          <button class="btn small" id="plAllToday">All → today</button>
+          <button class="btn small ghost" id="plAllDump">Unschedule all</button>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin:-2px 0 10px">Scheduled for a day that's passed. Reschedule or send back to the dump.</p>
+      <div id="plOverdue"></div>
+    </div>` : ''}
     <div class="grid cols-2" style="align-items:start">
       <div class="card">
         <h3>Unscheduled</h3>
@@ -454,6 +475,26 @@ function viewPlanner(c) {
         <div class="planner-grid" id="plGrid"></div>
       </div>
     </div>`;
+
+  if (overdue.length) {
+    const od = $('#plOverdue');
+    overdue.forEach((t) => {
+      const el = taskEl(t, { schedulable: true, compact: true });
+      const act = document.createElement('div');
+      act.className = 'row'; act.style.gap = '4px'; act.style.flex = 'none';
+      const bT = document.createElement('button');
+      bT.className = 'btn small primary'; bT.textContent = '→ Today';
+      bT.onclick = () => { t.scheduledFor = today; saveDB(); renderView('planner'); };
+      const bU = document.createElement('button');
+      bU.className = 'btn small ghost'; bU.textContent = 'Unschedule';
+      bU.onclick = () => { t.scheduledFor = null; saveDB(); renderView('planner'); };
+      act.append(bT, bU);
+      el.appendChild(act);
+      od.appendChild(el);
+    });
+    $('#plAllToday').onclick = () => { overdue.forEach((t) => (t.scheduledFor = today)); saveDB(); renderView('planner'); toast('Moved to today'); };
+    $('#plAllDump').onclick = () => { overdue.forEach((t) => (t.scheduledFor = null)); saveDB(); renderView('planner'); toast('Back in the dump'); };
+  }
 
   const plDump = $('#plDump');
   dump.forEach((t) => plDump.appendChild(taskEl(t, { schedulable: true, compact: true })));
@@ -1288,7 +1329,7 @@ function taskEl(t, opts = {}) {
         ${t.estimateMin ? `<span>⏱ ${t.estimateMin}m</span>` : ''}
         ${dueTxt}
         ${ev ? `<span>🔗 ${esc(ev.title)}</span>` : ''}
-        ${t.scheduledFor ? `<span>🗓 ${t.scheduledFor === todayISO() ? 'today' : prettyDate(t.scheduledFor)}</span>` : ''}
+        ${t.scheduledFor ? `<span class="${t.scheduledFor < todayISO() ? 'due-over' : ''}">🗓 ${t.scheduledFor === todayISO() ? 'today' : t.scheduledFor < todayISO() ? `overdue · ${prettyDate(t.scheduledFor)}` : prettyDate(t.scheduledFor)}</span>` : ''}
         ${(t.tags || []).map((x) => `<span class="tag">${esc(x)}</span>`).join('')}
       </div>
     </div>
