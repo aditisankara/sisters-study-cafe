@@ -11,8 +11,9 @@ const DB_KEY = 'cafe-study-db';
 const THEMES = [
   { id: 'cafe',     name: 'Café',     color: '#c98a5b' },
   { id: 'matcha',   name: 'Matcha',   color: '#7fa25a' },
-  { id: 'midnight', name: 'Midnight', color: '#9b8cff' },
-  { id: 'sakura',   name: 'Sakura',   color: '#e28fae' },
+  { id: 'ocean',    name: 'Ocean',    color: '#4b83c4' },
+  { id: 'sakura',   name: 'Sakura',   color: '#dd85a6' },
+  { id: 'midnight', name: 'Midnight', color: '#7c6cf0' },
 ];
 const AVATARS = ['🙂','🐰','🦊','🐨','🐸','🦉','🌷','⭐','🍵','📚','🧋','🐧'];
 const QUOTES = [

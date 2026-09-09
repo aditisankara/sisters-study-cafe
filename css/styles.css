@@ -12,11 +12,11 @@
   --radius-pill: 999px;
   /* legacy alias still referenced in a few places */
   --shadow: var(--shadow-md);
-  --shadow-sm: 0 1px 2px rgba(24,20,14,.05), 0 1px 3px rgba(24,20,14,.05);
-  --shadow-md: 0 2px 6px rgba(24,20,14,.05), 0 10px 30px rgba(24,20,14,.07);
-  --shadow-lg: 0 10px 24px rgba(24,20,14,.08), 0 24px 60px rgba(24,20,14,.12);
+  --shadow-sm: 0 1px 2px rgba(40,32,20,.05), 0 2px 6px rgba(40,32,20,.06);
+  --shadow-md: 0 2px 8px rgba(40,32,20,.06), 0 12px 32px rgba(40,32,20,.09);
+  --shadow-lg: 0 12px 28px rgba(40,32,20,.10), 0 28px 64px rgba(40,32,20,.14);
   --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
-  --font: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font: "Plus Jakarta Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --sp: 16px;
   --dur: .18s;
@@ -32,13 +32,13 @@
 
 /* ======================= CAFÉ ======================= */
 [data-theme="cafe"] {
-  --bg: #f5ece1;
-  --bg-2: #efe2d2;
-  --surface: #fffaf3;
-  --surface-2: #f7ede0;
+  --bg: #f1e7d8;
+  --bg-2: #ebddc9;
+  --surface: #fbf4e9;
+  --surface-2: #f4ead9;
   --text: #3a2c20;
-  --text-soft: #7a6552;
-  --border: #e3d3bf;
+  --text-soft: #7c6853;
+  --border: #e4d5bf;
   --accent: #c98a5b;
   --accent-ink: #fff8f0;
   --good: #6b8f5e;
@@ -62,13 +62,13 @@
 
 /* ======================= MATCHA ======================= */
 [data-theme="matcha"] {
-  --bg: #eef2e6;
-  --bg-2: #e3ecd6;
-  --surface: #fbfdf6;
-  --surface-2: #eef4e2;
-  --text: #263021;
-  --text-soft: #5f7256;
-  --border: #d3e0c2;
+  --bg: #e8eede;
+  --bg-2: #dde6cd;
+  --surface: #f5f8ec;
+  --surface-2: #ebf1dd;
+  --text: #273022;
+  --text-soft: #61735a;
+  --border: #d6e0c6;
   --accent: #7fa25a;
   --accent-ink: #f7fbef;
   --good: #5b9e6c;
@@ -92,15 +92,15 @@
 
 /* ======================= MIDNIGHT ======================= */
 [data-theme="midnight"] {
-  --bg: #f1f0fb;
-  --bg-2: #e7e5f7;
-  --surface: #ffffff;
-  --surface-2: #f0eefb;
+  --bg: #edecf7;
+  --bg-2: #e3e0f2;
+  --surface: #f7f6fc;
+  --surface-2: #eeecf8;
   --text: #232135;
   --text-soft: #6f6b8c;
-  --border: #ddd9ef;
+  --border: #ddd9ee;
   --accent: #7c6cf0;
-  --accent-ink: #ffffff;
+  --accent-ink: #fbfaff;
   --good: #3fae87;
   --warn: #cf9a3c;
   --bad: #d1584f;
@@ -122,14 +122,14 @@
 
 /* ======================= SAKURA ======================= */
 [data-theme="sakura"] {
-  --bg: #fdeef2;
-  --bg-2: #fbe1ea;
-  --surface: #fff8fb;
-  --surface-2: #fce7ef;
+  --bg: #f9e8ed;
+  --bg-2: #f5dbe5;
+  --surface: #fcf3f6;
+  --surface-2: #f7e6ed;
   --text: #4a2a37;
-  --text-soft: #9b6c7e;
-  --border: #f4cdda;
-  --accent: #e28fae;
+  --text-soft: #9d6f80;
+  --border: #f0ccd9;
+  --accent: #dd85a6;
   --accent-ink: #fff6f9;
   --good: #6b9f7e;
   --warn: #db9a4a;
@@ -150,6 +150,36 @@
   --bad: #e0788c;
 }
 
+/* ======================= OCEAN ======================= */
+[data-theme="ocean"] {
+  --bg: #e7edf4;
+  --bg-2: #dae5f0;
+  --surface: #f4f8fc;
+  --surface-2: #e8f0f8;
+  --text: #1f2c3a;
+  --text-soft: #5b7085;
+  --border: #cfdcea;
+  --accent: #4b83c4;
+  --accent-ink: #f5f9fd;
+  --good: #4f9e78;
+  --warn: #cf9a3c;
+  --bad: #d05b53;
+}
+[data-theme="ocean"][data-mode="dark"] {
+  --bg: #111820;
+  --bg-2: #172029;
+  --surface: #1b2531;
+  --surface-2: #26323f;
+  --text: #e6edf5;
+  --text-soft: #9fb3c6;
+  --border: #33414f;
+  --accent: #6aa5e8;
+  --accent-ink: #111820;
+  --good: #5fc39a;
+  --warn: #e0a94f;
+  --bad: #ef7a74;
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; }
@@ -157,22 +187,23 @@ body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 14.5px;
+  line-height: 1.58;
+  letter-spacing: -.003em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: "cv05", "ss01";
+  font-optical-sizing: auto;
   min-height: 100vh;
 }
 [hidden] { display: none !important; }
 button { font-family: inherit; cursor: pointer; color: inherit; }
-h1, h2, h3, h4 { margin: 0 0 .4em; line-height: 1.22; font-weight: 650; letter-spacing: -.014em; }
-h1 { letter-spacing: -.022em; }
-h2 { font-size: 20px; }
-h3 { font-size: 15px; }
-h4 { font-size: 13px; }
-p { line-height: 1.6; }
+h1, h2, h3, h4 { margin: 0 0 .4em; line-height: 1.24; font-weight: 650; letter-spacing: -.011em; }
+h1 { letter-spacing: -.018em; }
+h2 { font-size: 20px; letter-spacing: -.016em; }
+h3 { font-size: 15px; font-weight: 600; }
+h4 { font-size: 13px; font-weight: 600; }
+p { line-height: 1.62; }
 .muted { color: var(--text-soft); }
 a { color: var(--accent); text-underline-offset: 2px; }
 a:hover { text-decoration: underline; }
